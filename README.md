@@ -91,7 +91,7 @@ This project can run out of the box using the default SQLite database.
 
 ```powershell
 python -m venv venv
-venv\Scripts\activate
+.venv\Scripts\activate
 ```
 
 2. Install dependencies:
