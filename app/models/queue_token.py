@@ -12,9 +12,12 @@ class TokenStatus(enum.Enum):
 
 class PriorityReason(enum.Enum):
     NONE     = "none"
+    EMERGENCY = "emergency"
+    URGENT   = "urgent"
     ELDERLY  = "elderly"
     PREGNANT = "pregnant"
     DISABLED = "disabled"
+    CHILD    = "child"
 
 class QueueToken(db.Model):
     __tablename__ = "queue_tokens"

@@ -2,6 +2,7 @@ from app.extensions import db
 from app.models import (QueueToken, ServiceType, Customer,
                          TokenStatus, PriorityReason, Branch)
 from datetime import date, datetime, timezone
+from sqlalchemy import or_
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,16 +38,21 @@ class QueueService:
 
     @staticmethod
     def get_position(token: QueueToken) -> int:
-        """How many people are ahead in the same service queue."""
+        """How many people are ahead using priority-first, FIFO ordering."""
         query = (QueueToken.query
                  .filter_by(branch_id=token.branch_id,
                             service_type_id=token.service_type_id,
                             queue_date=token.queue_date,
-                            status=TokenStatus.WAITING)
-                 .filter(QueueToken.id < token.id))
+                            status=TokenStatus.WAITING))
 
-        if not token.is_priority:
-            query = query.filter(QueueToken.is_priority.is_(False))
+        if token.is_priority:
+            query = query.filter(QueueToken.is_priority.is_(True),
+                                 QueueToken.id < token.id)
+        else:
+            query = query.filter(or_(
+                QueueToken.is_priority.is_(True),
+                (QueueToken.is_priority.is_(False)) & (QueueToken.id < token.id),
+            ))
 
         return query.count()
 

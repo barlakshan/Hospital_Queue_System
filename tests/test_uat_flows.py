@@ -2,23 +2,31 @@ import pytest
 
 from app import create_app
 from app.extensions import db
-from app.models import Branch, QueueToken, SatisfactionRating, ServiceType, TokenStatus, User, UserRole
+from app.models import (Branch, Counter, QueueToken, SatisfactionRating, ServiceType,
+                        TokenStatus, User, UserRole)
 
 
 @pytest.fixture()
 def client():
     app = create_app("testing")
-    app.config.update(TESTING=True)
+    app.config.update(TESTING=True, SMS_PROVIDER="mock")
 
     with app.app_context():
         db.drop_all()
         db.create_all()
         for service in [
-            ServiceType(code="AO", name="Account Opening", prefix="A", avg_service_min=12),
-            ServiceType(code="AC", name="Account Closing", prefix="C", avg_service_min=8),
-            ServiceType(code="FD", name="Fixed Deposits", prefix="F", avg_service_min=10),
-            ServiceType(code="LN", name="Loans", prefix="L", avg_service_min=15),
-            ServiceType(code="OT", name="Other", prefix="O", avg_service_min=10),
+            ServiceType(code="G", name="General OPD", prefix="G", avg_service_min=10,
+                        allowed_roles=["lobby_officer"]),
+            ServiceType(code="S", name="Specialist Consultation", prefix="S", avg_service_min=15,
+                        allowed_roles=["lobby_officer", "loan_officer"]),
+            ServiceType(code="L", name="Laboratory", prefix="L", avg_service_min=8,
+                        allowed_roles=["loan_officer"]),
+            ServiceType(code="R", name="Radiology", prefix="R", avg_service_min=12,
+                        allowed_roles=["loan_officer"]),
+            ServiceType(code="P", name="Pharmacy", prefix="P", avg_service_min=6,
+                        allowed_roles=["lobby_officer", "loan_officer"]),
+            ServiceType(code="B", name="Billing / Cashier", prefix="B", avg_service_min=5,
+                        allowed_roles=["lobby_officer", "loan_officer"]),
         ]:
             db.session.add(service)
         db.session.commit()
@@ -57,9 +65,13 @@ def test_customer_registration_and_queue_lifecycle(client):
         officer.set_password("secret123")
         db.session.add(officer)
         db.session.commit()
-        service = ServiceType.query.filter_by(code="AO").first()
+        counter = Counter(branch_id=branch.id, label="OPD 1", user_id=officer.id)
+        db.session.add(counter)
+        db.session.commit()
+        service = ServiceType.query.filter_by(code="G").first()
         branch_id = branch.id
         service_id = service.id
+        counter_id = counter.id
 
     login_response = client.post(
         "/api/auth/login",
@@ -78,7 +90,7 @@ def test_customer_registration_and_queue_lifecycle(client):
     )
     assert register_response.status_code == 201
     payload = register_response.get_json()
-    assert payload["token_number"].startswith("A")
+    assert payload["token_number"].startswith("G")
     assert payload["position"] >= 0
 
     with client.application.app_context():
@@ -91,7 +103,7 @@ def test_customer_registration_and_queue_lifecycle(client):
     assert status_response.status_code == 200
     assert status_response.get_json()["status"] == "waiting"
 
-    call_response = client.post("/api/queue/call-next", json={"counter_id": 1})
+    call_response = client.post("/api/queue/call-next", json={"counter_id": counter_id})
     assert call_response.status_code == 200
 
     start_response = client.post(f"/api/queue/token/{payload['token_id']}/start")
@@ -224,6 +236,146 @@ def test_officer_can_view_dashboard_and_queue(client):
 
     history_response = client.get("/officer/history")
     assert history_response.status_code == 200
+
+
+def test_hospital_priority_categories_keep_priority_ahead_of_regular_queue(client):
+    with client.application.app_context():
+        branch = Branch(code="HOS", name="Main Hospital", is_active=True)
+        db.session.add(branch)
+        db.session.commit()
+        officer = User(
+            employee_id="NUR001",
+            full_name="Nurse One",
+            email="nurse@example.com",
+            role=UserRole.LOBBY_OFFICER,
+            branch_id=branch.id,
+        )
+        officer.set_password("secret123")
+        db.session.add(officer)
+        db.session.commit()
+        branch_id = branch.id
+        service_id = ServiceType.query.filter_by(code="G").first().id
+
+    mobile_counter = [0]
+
+    def register_patient(name, priority="NONE"):
+        mobile_counter[0] += 1
+        return client.post("/api/queue/register", json={
+            "branch_id": branch_id,
+            "full_name": name,
+            "mobile": f"07712345{mobile_counter[0]:02d}",
+            "service_type_id": service_id,
+            "priority_reason": priority,
+        })
+
+    first_regular = register_patient("Patient One")
+    emergency = register_patient("Patient Two", "EMERGENCY")
+    second_regular = register_patient("Patient Three")
+    urgent = register_patient("Patient Four", "URGENT")
+    assert [first_regular.status_code, emergency.status_code,
+            second_regular.status_code, urgent.status_code] == [201, 201, 201, 201]
+
+    assert emergency.get_json()["position"] == 0
+    assert second_regular.get_json()["position"] == 2
+    assert urgent.get_json()["position"] == 1
+    status = client.get(
+        f"/api/queue/token/{second_regular.get_json()['token_id']}/status"
+    ).get_json()
+    assert status["estimated_wait"] == 30
+    assert register_patient("Invalid Priority", "CRITICAL").status_code == 400
+
+    assert client.post(
+        "/api/auth/login",
+        json={"email": "nurse@example.com", "password": "secret123"},
+    ).status_code == 200
+    call_response = client.post("/api/queue/call-next", json={})
+    assert call_response.status_code == 200
+    assert call_response.get_json()["token_number"] == emergency.get_json()["token_number"]
+
+
+def test_service_configuration_controls_staff_queue_access_and_display_privacy(client):
+    with client.application.app_context():
+        branch = Branch(code="PRI", name="Private Hospital", is_active=True)
+        admin = User(
+            employee_id="ADM100",
+            full_name="Hospital Admin",
+            email="hospital-admin@example.com",
+            role=UserRole.ADMIN,
+        )
+        admin.set_password("secret123")
+        db.session.add_all([branch, admin])
+        db.session.commit()
+        service = ServiceType.query.filter_by(code="G").first()
+        service.allowed_roles = ["lobby_officer"]
+        service_id = service.id
+        branch_id = branch.id
+        db.session.commit()
+
+        receptionist = User(
+            employee_id="REC100",
+            full_name="Reception Staff",
+            email="reception@example.com",
+            role=UserRole.LOBBY_OFFICER,
+            branch_id=branch_id,
+        )
+        receptionist.set_password("secret123")
+        db.session.add(receptionist)
+        db.session.commit()
+        assert receptionist.allowed_service_codes == ["G", "S", "P", "B"]
+
+    assert client.post(
+        "/api/auth/login",
+        json={"email": "hospital-admin@example.com", "password": "secret123"},
+    ).status_code == 200
+    services_page = client.get("/admin/services")
+    assert services_page.status_code == 200
+    assert b"Departments &amp; Services" in services_page.data
+    with client.application.app_context():
+        service_rows = ServiceType.query.filter_by(is_active=True).all()
+        settings = {}
+        for service in service_rows:
+            settings[f"name_{service.id}"] = service.name
+            settings[f"prefix_{service.id}"] = service.prefix
+            settings[f"avg_{service.id}"] = str(service.avg_service_min)
+            settings[f"active_{service.id}"] = "1"
+            settings[f"roles_{service.id}"] = service.allowed_roles or []
+        settings[f"roles_{service_id}"] = ["loan_officer"]
+        settings.update({
+            "new_code": "X",
+            "new_name": "Vaccination",
+            "new_prefix": "V",
+            "new_avg": "20",
+            "new_roles": ["loan_officer"],
+        })
+    assert client.post("/admin/services", data=settings).status_code == 302
+    with client.application.app_context():
+        assert ServiceType.query.get(service_id).allowed_roles == ["loan_officer"]
+        vaccination = ServiceType.query.filter_by(code="X").first()
+        assert vaccination is not None
+        assert vaccination.avg_service_min == 20
+        assert vaccination.allowed_roles == ["loan_officer"]
+
+    patient_response = client.post("/api/queue/register", json={
+        "branch_id": branch_id,
+        "full_name": "Private Patient",
+        "mobile": "0771234599",
+        "service_type_id": service_id,
+        "priority_reason": "DISABLED",
+    })
+    assert patient_response.status_code == 201
+    token_id = patient_response.get_json()["token_id"]
+
+    with client.application.app_context():
+        from app.models import QueueToken, TokenStatus
+        token = QueueToken.query.get(token_id)
+        token.status = TokenStatus.CALLED
+        db.session.commit()
+
+    display_response = client.get("/api/queue/display/PRI")
+    assert display_response.status_code == 200
+    displayed_token = display_response.get_json()["serving"][0]
+    assert "customer_name" not in displayed_token
+    assert "priority_reason" not in displayed_token
 
 
 def test_manager_cannot_access_admin_routes(client):

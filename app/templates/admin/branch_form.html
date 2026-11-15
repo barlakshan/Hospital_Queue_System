@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit' if branch else 'New' }} Branch — Admin Dashboard{% endblock %}
+{% block title %}{{ 'Edit' if branch else 'New' }} Location — Admin Dashboard{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
-    <div class="pb-page-title">{{ 'Edit Branch' if branch else 'New Branch' }}</div>
-    <div class="pb-page-sub">Manage branch details and status</div>
+    <div class="pb-page-title">{{ 'Edit Location' if branch else 'New Location' }}</div>
+    <div class="pb-page-sub">Manage hospital location details and status</div>
   </div>
   <a href="/admin/branches" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
@@ -17,11 +17,11 @@
   <div class="pb-card-body">
     <form method="POST">
       <div class="pb-form-group">
-        <label class="pb-form-label" for="code">Branch code *</label>
+        <label class="pb-form-label" for="code">Location code *</label>
         <input id="code" name="code" class="pb-form-control" type="text" value="{{ branch.code if branch else '' }}" {% if branch %}disabled{% endif %} required>
       </div>
       <div class="pb-form-group">
-        <label class="pb-form-label" for="name">Branch name *</label>
+        <label class="pb-form-label" for="name">Location name *</label>
         <input id="name" name="name" class="pb-form-control" type="text" value="{{ branch.name if branch else '' }}" required>
       </div>
       <div class="pb-form-group">

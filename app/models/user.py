@@ -35,10 +35,14 @@ class User(UserMixin, db.Model):
 
     @property
     def allowed_service_codes(self):
-        mapping = {
-            UserRole.ADMIN:          ["AO","AC","FD","LN","OT"],
-            UserRole.BRANCH_MANAGER: ["OT"],
-            UserRole.LOBBY_OFFICER:  ["AO","AC","FD"],
-            UserRole.LOAN_OFFICER:   ["LN"],
-        }
-        return mapping.get(self.role, [])
+        if self.role in (UserRole.ADMIN, UserRole.BRANCH_MANAGER):
+            return [service.code for service in self._active_services()]
+        return [
+            service.code for service in self._active_services()
+            if self.role.value in (service.allowed_roles or [])
+        ]
+
+    @staticmethod
+    def _active_services():
+        from app.models.service_type import ServiceType
+        return ServiceType.query.filter_by(is_active=True).all()

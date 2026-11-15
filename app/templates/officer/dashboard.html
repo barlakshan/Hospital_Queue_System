@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Officer Dashboard — People's Bank{% endblock %}
+{% block title %}Staff Dashboard — Melsta Hospitals{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
-    <div class="pb-page-title">Officer Dashboard</div>
+    <div class="pb-page-title">Staff Dashboard</div>
     <div class="pb-page-sub">Counter {{ counter.label }} &nbsp;·&nbsp; {{ branch.name }}</div>
   </div>
   <div style="display:flex;gap:8px;">
@@ -60,7 +60,7 @@
       <div id="serving-section">
         <div class="text-center py-4" style="color:#aaa;">
           <i class="ti ti-armchair-2" style="font-size:36px;opacity:.3;display:block;margin-bottom:8px;"></i>
-          No customer currently serving
+          No patient currently being seen
         </div>
       </div>
     </div>
@@ -99,7 +99,7 @@
     </div>
     <div class="pb-card-body" style="padding:0;">
       <table class="pb-table">
-        <thead><tr><th>Token</th><th>Customer</th><th>Service</th><th>Duration</th><th>Rating</th></tr></thead>
+        <thead><tr><th>Token</th><th>Patient</th><th>Service</th><th>Duration</th><th>Rating</th></tr></thead>
         <tbody>
           {% for t in recent_tokens %}
           <tr>
@@ -131,7 +131,7 @@
     data: {
       labels: {{ hourly_labels | tojson }},
       datasets: [{
-        label: 'Customers served',
+        label: 'Patients served',
         data: {{ hourly_data | tojson }},
         backgroundColor: (ctx) => ctx.dataIndex === {{ peak_hour }} ? '#99c630' : '#c80000',
         borderRadius: 4,

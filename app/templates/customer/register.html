@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Join Queue — People's Bank</title>
+  <title>Join the Patient Queue — Melsta Hospitals</title>
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/pbqms.css') }}" rel="stylesheet">
   <style>
@@ -25,22 +25,17 @@
 <body>
 <div class="reg-wrap">
   <div class="reg-header">
-    <div class="reg-logo">PB</div>
+    <div class="reg-logo">MH</div>
     <div>
-      <div style="font-size:15px;font-weight:600;color:#fff;">People's Bank</div>
-      <div style="font-size:11px;color:rgba(255,255,255,.7);">Queue Registration</div>
+      <div style="font-size:15px;font-weight:600;color:#fff;">Melsta Hospitals</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.7);">Patient Queue Registration</div>
     </div>
   </div>
 
   <div class="reg-body">
     <div class="branch-info">
       <i class="ti ti-building"></i>
-      <strong>{{ branch.name }}</strong> &nbsp;·&nbsp; {{ branch.city }}
-    </div>
-
-    <div class="wait-info">
-      <span><i class="ti ti-clock" style="font-size:14px;margin-right:4px;color:var(--pb-red)"></i> Current waiting time</span>
-      <strong style="color:var(--pb-red);">~{{ avg_wait }} min</strong>
+      <strong>{{ branch.name }}</strong> &nbsp;·&nbsp; {{ branch.city or 'Hospital location' }}
     </div>
 
     <form id="reg-form">
@@ -57,40 +52,38 @@
       </div>
 
       <div class="pb-form-group">
-        <label class="pb-form-label" style="margin-bottom:8px;">Service required *</label>
+        <label class="pb-form-label" style="margin-bottom:8px;">Department or service *</label>
         <div class="service-grid">
           {% for svc in services %}
           <label class="service-option" for="svc-{{ svc.id }}">
-            <input type="radio" id="svc-{{ svc.id }}" name="service_type_id" value="{{ svc.id }}" {% if svc.code == 'OT' %}data-other="true"{% endif %} required>
-            <i class="ti ti-{{ svc.code == 'AO' and 'credit-card' or svc.code == 'AC' and 'credit-card-off' or svc.code == 'FD' and 'piggy-bank' or svc.code == 'LN' and 'cash' or 'dots-circle-horizontal' }}"></i>
+            <input type="radio" id="svc-{{ svc.id }}" name="service_type_id" value="{{ svc.id }}" required>
+            <i class="ti ti-{{ svc.code == 'G' and 'stethoscope' or svc.code == 'S' and 'user-heart' or svc.code == 'L' and 'test-pipe' or svc.code == 'R' and 'scan' or svc.code == 'P' and 'pill' or 'cash' }}"></i>
             {{ svc.name }}
           </label>
           {% endfor %}
         </div>
-        <div id="other-reason">
-          <label class="pb-form-label" style="margin-top:8px;">Please describe your request *</label>
-          <textarea name="custom_reason" class="pb-form-control" rows="2" placeholder="e.g. Change account signatory details"></textarea>
-        </div>
       </div>
 
       <div class="pb-priority-toggle mb-3" onclick="togglePriority(this)">
-        <div class="pb-priority-toggle-label">
-          <i class="ti ti-accessibility"></i> Priority customer (elderly, pregnant, disabled)?
-        </div>
+        <div class="pb-priority-toggle-label"><i class="ti ti-accessibility"></i> Do you need priority assistance?</div>
         <div class="pb-toggle-pill" id="priority-toggle"></div>
         <input type="hidden" name="priority_reason" id="priority-reason" value="NONE">
       </div>
 
       <div id="priority-options" style="display:none;margin-bottom:12px;">
         <div class="pb-chip-group">
+          <div class="pb-chip" onclick="setPriorityReason('EMERGENCY',this)"><i class="ti ti-ambulance"></i> Emergency</div>
+          <div class="pb-chip" onclick="setPriorityReason('URGENT',this)"><i class="ti ti-alert-circle"></i> Urgent referral</div>
           <div class="pb-chip" onclick="setPriorityReason('ELDERLY',this)"><i class="ti ti-user"></i> Elderly</div>
           <div class="pb-chip" onclick="setPriorityReason('PREGNANT',this)"><i class="ti ti-heart"></i> Pregnant</div>
           <div class="pb-chip" onclick="setPriorityReason('DISABLED',this)"><i class="ti ti-wheelchair"></i> Disabled</div>
+          <div class="pb-chip" onclick="setPriorityReason('CHILD',this)"><i class="ti ti-mood-kid"></i> Child</div>
         </div>
+        <small class="text-muted d-block mt-2">If this is a medical emergency, please alert hospital staff immediately. Do not wait for a queue token.</small>
       </div>
 
       <button type="submit" class="btn-pb-primary w-100" id="submit-btn" style="width:100%;padding:12px;font-size:14px;">
-        <i class="ti ti-ticket"></i> Get my queue number
+        <i class="ti ti-ticket"></i> Get my patient token
       </button>
     </form>
   </div>
@@ -102,8 +95,6 @@
     label.addEventListener('click', () => {
       document.querySelectorAll('.service-option').forEach(l => l.classList.remove('selected'));
       label.classList.add('selected');
-      const input = label.querySelector('input');
-      document.getElementById('other-reason').style.display = input.dataset.other ? 'block' : 'none';
     });
   });
 
@@ -145,12 +136,12 @@
       } else {
         alert(result.error || 'Registration failed. Please try again.');
         btn.disabled = false;
-        btn.innerHTML = '<i class="ti ti-ticket"></i> Get my queue number';
+        btn.innerHTML = '<i class="ti ti-ticket"></i> Get my patient token';
       }
     } catch {
       alert('Network error — please try again.');
       btn.disabled = false;
-      btn.innerHTML = '<i class="ti ti-ticket"></i> Get my queue number';
+      btn.innerHTML = '<i class="ti ti-ticket"></i> Get my patient token';
     }
   });
 </script>

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Branch QR Code — Manager Dashboard{% endblock %}
+{% block title %}Location Registration QR Code — Manager Dashboard{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">{{ branch.name }} — QR Code</div>
-    <div class="pb-page-sub">Branch code: {{ branch.code }}</div>
+    <div class="pb-page-sub">Location code: {{ branch.code }}</div>
   </div>
   <a href="/manager/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
@@ -26,7 +26,7 @@
       </button>
     </div>
     {% endif %}
-    <p style="margin-top:14px;color:#666;">Scan this code to open the customer registration page for {{ branch.name }}.</p>
+    <p style="margin-top:14px;color:#666;">Scan this code to open the patient registration page for {{ branch.name }}.</p>
   </div>
 </div>
 {% endblock %}

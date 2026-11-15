@@ -14,10 +14,8 @@ from app import models  # noqa: F401
 
 
 def initialize_database(app):
-    """Create database tables automatically for local/dev/test setups."""
-    uri = (app.config.get("SQLALCHEMY_DATABASE_URI") or "").lower()
-    should_create = app.config.get("TESTING") or app.config.get("DEBUG") or uri.startswith("sqlite")
-    if should_create:
+    """Create tables automatically in tests; use Alembic for real databases."""
+    if app.config.get("TESTING"):
         with app.app_context():
             db.create_all()
 
@@ -93,9 +91,18 @@ def create_app(config_name=None):
 
 
 def register_cli(app):
+    hospital_services = [
+        ("G", "General OPD", "G", 10, ["lobby_officer"]),
+        ("S", "Specialist Consultation", "S", 15, ["lobby_officer", "loan_officer"]),
+        ("L", "Laboratory", "L", 8, ["loan_officer"]),
+        ("R", "Radiology", "R", 12, ["loan_officer"]),
+        ("P", "Pharmacy", "P", 6, ["lobby_officer", "loan_officer"]),
+        ("B", "Billing / Cashier", "B", 5, ["lobby_officer", "loan_officer"]),
+    ]
+
     @app.cli.command("seed-db")
     def seed_db():
-        """Seed service types and initialize the schema if needed."""
+        """Seed hospital services and initialize the schema if needed."""
         from app.models import ServiceType
 
         with app.app_context():
@@ -103,18 +110,21 @@ def register_cli(app):
             db.create_all()
             db.session.commit()
 
-            services = [
-                ServiceType(code="AO", name="Account Opening",  prefix="A", avg_service_min=12),
-                ServiceType(code="AC", name="Account Closing",  prefix="C", avg_service_min=8),
-                ServiceType(code="FD", name="Fixed Deposits",   prefix="F", avg_service_min=10),
-                ServiceType(code="LN", name="Loans",            prefix="L", avg_service_min=15),
-                ServiceType(code="OT", name="Other",            prefix="O", avg_service_min=10),
-            ]
             added = 0
-            for s in services:
-                if not ServiceType.query.filter_by(code=s.code).first():
-                    db.session.add(s)
+            for code, name, prefix, avg_service_min, allowed_roles in hospital_services:
+                if not ServiceType.query.filter_by(code=code).first():
+                    db.session.add(ServiceType(
+                        code=code,
+                        name=name,
+                        prefix=prefix,
+                        avg_service_min=avg_service_min,
+                        allowed_roles=allowed_roles,
+                    ))
                     added += 1
+
+            ServiceType.query.filter(
+                ServiceType.code.in_(["AO", "AC", "FD", "LN", "OT"])
+            ).update({"is_active": False}, synchronize_session=False)
             db.session.commit()
             click.echo(f"Service types seeded ({added} added).")
 

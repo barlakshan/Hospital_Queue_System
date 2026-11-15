@@ -5,7 +5,7 @@
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">Service History</div>
-    <div class="pb-page-sub">Completed tokens today for {{ branch.name if branch else 'your branch' }}</div>
+    <div class="pb-page-sub">Completed patient visits today for {{ branch.name if branch else 'your location' }}</div>
   </div>
   <a href="/officer/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
@@ -16,7 +16,7 @@
   </div>
   <div class="pb-card-body" style="padding:0;">
     <table class="pb-table">
-      <thead><tr><th>Token</th><th>Customer</th><th>Service</th><th>Duration</th><th>Rating</th></tr></thead>
+      <thead><tr><th>Token</th><th>Patient</th><th>Service</th><th>Duration</th><th>Rating</th></tr></thead>
       <tbody>
         {% for t in completed %}
         <tr>

@@ -1,128 +1,87 @@
-# People's Bank Sri Lanka — Queue Management System
+# Melsta Hospitals — Smart Queue & Patient Flow Management
 
-## Project overview
+## Overview
 
-This repository implements a queue management system for branch banking. It supports customer registration through branch QR codes, live queue screens, officer workflows, branch manager and admin dashboards, SMS notifications, and role-based access control.
+This Flask application adapts the existing queue platform for hospital outpatient and service queues. Patients can register from a location QR code or through reception, receive a token and estimated wait, follow live status on their phone, and submit feedback after service. Staff call patients from department queues, while managers and administrators review activity and configure services.
 
-The current codebase provides a mostly complete MVP with the following fully implemented capabilities:
+The queue stores only patient name and mobile number for identification; it is not an electronic health record and must not be used to store diagnoses or clinical notes. Multi-step visits and HIS/appointment integration are not included in this initial adaptation.
 
-- Customer registration by scanning branch QR codes
-- Token issuance per service type with unique branch/service numbering
-- Priority queue handling for elderly, pregnant, and disabled customers
-- Officer "call next" workflow with counter assignment and service tracking
-- Customer status polling and satisfaction rating submission
-- Live display screen updates over Socket.IO
-- SMS notification abstraction with mock, Dialog, Mobitel, and Twilio providers
-- Admin branch/user management and audit logging
-- Branch manager officer management and analytics
-- Local SQLite fallback for development and MySQL support for production
-- Docker Compose deployment for web, MySQL, Redis, and Celery worker
+## Hospital services
 
-## Current development state
+`flask seed-db` inserts these defaults when missing; it preserves service settings changed later by an administrator:
 
-### Completed
+| Service | Prefix | Initial average | Default staff access |
+|---|---:|---:|---|
+| General OPD | G | 10 min | Reception / OPD staff |
+| Specialist Consultation | S | 15 min | Reception / OPD staff, department staff |
+| Laboratory | L | 8 min | Department staff |
+| Radiology | R | 12 min | Department staff |
+| Pharmacy | P | 6 min | Reception / OPD staff, department staff |
+| Billing / Cashier | B | 5 min | Reception / OPD staff, department staff |
 
-- Queue registration flow with customer and token persistence
-- Role-based login and dashboard redirects
-- Admin UI and API for branches, users, QR generation, and audit logs
-- Manager UI and API for officer management and branch analytics
-- Officer dashboard with current queue counts and recent completed tokens
-- Live screen route and Socket.IO event handlers for branch room updates
-- SMS task abstraction with Celery async fallback via thread
-- Daily queue cleanup task in `app/tasks/cleanup_tasks.py` to mark stale waiting tokens
-- CLI commands: `seed-db`, `create-admin`, `reset-queue`, `generate-qr`
-- Default branch QR generation into `static/qrcodes`
-- Test coverage for manager flow and seed data
+System administrators can adjust service names, token prefixes, average service times, active status, and staff access at **Departments & Services**. Estimates are based on the number of people ahead multiplied by the configured average; tune these values using actual queue data.
 
-### Incomplete / optional
+Priority categories are Emergency, Urgent referral, Elderly, Pregnant, Disabled, and Child. Priority patients are called before regular patients, with FIFO order within each group. Patients experiencing a medical emergency must alert hospital staff immediately rather than wait for a queue token.
 
-- Some view-level stats still use static placeholder values
-- No production `.env` file included; copy `.env.example` to `.env` before running
-- Swagger/OpenAPI docs not included
-- Monitoring, logging, and DNS/HTTPS configuration are not part of this repo
+## Roles
+
+- **System Administrator** — manage locations, users, departments/services, QR codes, audit logs, and analytics.
+- **Department / Operations Manager** — review department queues, staffing, analytics, and location performance.
+- **Reception / OPD Staff** — manage the services assigned to the role.
+- **Department Staff** — manage the services assigned to the role.
+
+The existing internal route and database identifiers (`branch`, `customer`, and legacy role names) remain for compatibility; the user-facing interface describes hospital locations, patients, and hospital staff roles.
 
 ## Architecture
 
-### Entry points
+- Python 3 / Flask, Flask-SQLAlchemy, Alembic migrations, and Gunicorn
+- MySQL for production; SQLite for development and tests
+- Socket.IO for live waiting-area display updates
+- Celery and Redis for asynchronous SMS and scheduled tasks
+- Responsive server-rendered pages for patient phones, staff consoles, and display screens
+- Docker Compose deployment behind Nginx
 
-- `wsgi.py` — starts the Flask + Socket.IO application
-- `app/__init__.py` — app factory, blueprint registration, DB init, CLI commands
-- `app/config.py` — development, production, testing configuration
-- `Dockerfile` — builds the web container
-- `docker-compose.yml` — orchestrates `web`, `db`, `redis`, and `celery`
+The public waiting-area display shows tokens, service names, and counters only; it does not display patient names or the reason for priority.
 
-### Key packages
+## Local development
 
-- `app/api/` — JSON API endpoints
-- `app/views/` — server-rendered HTML pages
-- `app/models/` — SQLAlchemy models and schema
-- `app/services/` — business logic and notifications
-- `app/tasks/` — asynchronous Celery tasks
-- `app/utils/` — decorators and QR generation helpers
-- `app/templates/` — Jinja2 UI templates
-- `static/` — CSS, JavaScript, QR assets
+1. Create and activate a virtual environment:
 
-### Database models
+   ```powershell
+   python -m venv venv
+   .venv\Scripts\activate
+   ```
 
-- `Branch` — branch metadata and QR payload
-- `User` — employee accounts, roles, and branch assignment
-- `ServiceType` — queue service categories and prefixes
-- `Customer` — customer identity and mobile details
-- `QueueToken` — ticket state, priority, service timing, and status
-- `Counter` — branch counter metadata and officer assignment
-- `SmsLog` — SMS send records and provider status
-- `SatisfactionRating` — customer survey ratings
-- `AuditLog` — recorded admin/manager actions
+2. Install dependencies and configure environment values:
 
-### Roles and permissions
+   ```powershell
+   pip install -r requirements.txt
+   copy .env.example .env
+   ```
 
-- `ADMIN` — full system administration
-- `BRANCH_MANAGER` — branch-level dashboards, managers, and QR codes
-- `LOBBY_OFFICER` — lobby service queue handling
-- `LOAN_OFFICER` — loan service queue handling
+3. Initialize or upgrade the database, seed hospital services, and create an administrator:
 
-## Deployment options
+   ```powershell
+   flask db upgrade
+   flask seed-db
+   flask create-admin
+   ```
 
-### Local development with SQLite
+   For an existing database created by the original app without an Alembic version, stamp its existing initial schema once before applying the hospital migration:
 
-This project can run out of the box using the default SQLite database.
+   ```powershell
+   flask db stamp 001_initial
+   flask db upgrade
+   flask seed-db
+   ```
 
-1. Create and activate a Python virtual environment:
+4. Start the server:
 
-```powershell
-python -m venv venv
-.venv\Scripts\activate
-```
+   ```powershell
+   flask run
+   ```
 
-2. Install dependencies:
-
-```powershell
-pip install -r requirements.txt
-```
-
-3. Copy environment variables:
-
-```powershell
-copy .env.example .env
-```
-
-4. Run database migrations and seed data:
-
-```powershell
-flask db upgrade
-flask seed-db
-flask create-admin
-```
-
-5. Start the app:
-
-```powershell
-flask run
-```
-
-### Docker Compose deployment
-
-Use Docker Compose for MySQL + Redis + Celery.
+## Docker deployment
 
 ```powershell
 copy .env.example .env
@@ -133,74 +92,35 @@ docker compose exec web flask seed-db
 docker compose exec web flask create-admin
 ```
 
-### Production readiness
+Set a strong `SECRET_KEY`, production `DATABASE_URL`, Redis/Celery URLs, HTTPS, backups, and retention policies before go-live. Configure the hospital's approved SMS provider and sender ID through environment variables.
 
-- Set `DATABASE_URL` to a MySQL URI
-- Set `REDIS_URL` and `CELERY_BROKER_URL` for Redis
-- Configure real SMS provider credentials
-- Use secure `SECRET_KEY` and HTTPS in production
-
-## Environment variables
-
-Use `.env.example` as a template.
+## Important configuration
 
 - `FLASK_APP` — `wsgi.py`
 - `FLASK_ENV` — `development` or `production`
-- `SECRET_KEY` — session security key
+- `SECRET_KEY` — session signing key
 - `DATABASE_URL` — SQLAlchemy URI
-- `REDIS_URL` — Redis connection
-- `CELERY_BROKER_URL` — Celery broker URL
-- `SMS_PROVIDER` — `mock`, `dialog`, `mobitel`, `twilio`
-- `DIALOG_USER`, `DIALOG_PASS`, `DIALOG_SENDER_ID`
-- `MOBITEL_TOKEN`, `MOBITEL_SENDER_ID`
-- `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM`
-- `BASE_URL` — used for QR code registration payloads
+- `REDIS_URL`, `CELERY_BROKER_URL` — background task infrastructure
+- `SMS_PROVIDER` — `mock`, `dialog`, `mobitel`, `textlk`, or `twilio`
+- Provider credentials and sender IDs — see `.env.example`
+- `BASE_URL` — public base URL embedded in QR registration pages
 
-## CLI commands
+## Patient journey
 
-The repository defines these Flask CLI commands:
+1. Scan the QR code for a hospital location or register at reception.
+2. Enter name and mobile number, select a department/service, and indicate a priority category if applicable.
+3. Receive a token, queue position, and estimated wait; the status page refreshes while waiting.
+4. Receive an SMS when staff call the token and proceed to the assigned room or counter.
+5. Staff start and complete the service; the system records queue and service timing.
+6. Submit a service rating from the patient status page.
 
-- `flask seed-db` — build schema and insert service types
-- `flask create-admin` — add first admin user interactively
-- `flask reset-queue --branch CODE` — clear today’s queue tokens
-- `flask generate-qr --branch CODE` — generate QR for a branch
-- `flask generate-qr --all` — generate all active branch QR codes
+## Staff workflow
 
-## Key user flows
+1. Sign in to the role-specific console.
+2. Call the next eligible patient, start service, then complete, skip, or mark no-show.
+3. Review waiting queues and recent service history.
 
-### Customer
-
-1. Scan branch QR code
-2. Open `/register/<branch_code>`
-3. Submit customer and service details
-4. Receive token confirmation and estimated wait
-5. Poll `/register/token/<id>` for queue status
-6. Receive call SMS and proceed to counter
-7. Submit satisfaction rating after service
-
-### Officer
-
-1. Login
-2. View dashboard with waiting and served counts
-3. Call next waiting customer
-4. Start service and complete tokens
-5. See recent completed tokens and ratings
-
-### Branch Manager
-
-1. Login
-2. View branch totals, service mix, and officer stats
-3. Add or edit officers
-4. View branch QR code page
-
-### Admin
-
-1. Login
-2. Manage branches and users
-3. View audit logs and branch performance
-4. Generate QR codes for branch registration
-
-## API summary
+## Main endpoints
 
 - `POST /api/auth/login`
 - `POST /api/queue/register`
@@ -209,62 +129,24 @@ The repository defines these Flask CLI commands:
 - `POST /api/queue/token/<id>/start`
 - `POST /api/queue/token/<id>/complete`
 - `POST /api/queue/token/<id>/rate`
-- `GET /api/queue/display/<branch_code>`
+- `GET /api/queue/display/<location_code>`
 - `GET /api/admin/branches`
 - `GET /api/admin/users`
 - `GET /api/admin/audit-logs`
 - `GET /api/manager/dashboard`
 
-## Real-time support
+## CLI commands
 
-- Socket.IO endpoint runs on `/socket.io/`
-- Display clients join branch rooms
-- Queue updates are emitted from `app.services.notification_service`
+- `flask seed-db` — initialize schema when needed and seed hospital services
+- `flask create-admin` — create the first system administrator
+- `flask reset-queue --branch CODE` — clear today's queue tokens for a location
+- `flask generate-qr --branch CODE` — generate a location registration QR code
+- `flask generate-qr --all` — generate QR codes for all active locations
 
-## Testing
+## Tests
 
-Existing tests cover:
+Run the focused queue and configuration tests with:
 
-- `tests/test_manager_flow.py` — manager login, officer creation, branch QR page
-- `tests/test_seed_db.py` — CLI seeding and service type creation
-
-## File structure
-
+```powershell
+python -m pytest tests/test_seed_db.py tests/test_uat_flows.py
 ```
-pbqms/
-├── app/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── extensions.py
-│   ├── api/
-│   ├── views/
-│   ├── models/
-│   ├── services/
-│   ├── tasks/
-│   ├── utils/
-│   └── templates/
-├── static/
-│   ├── css/
-│   ├── js/
-│   └── qrcodes/
-├── migrations/
-├── nginx/
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── README.md
-└── wsgi.py
-```
-
-## Notes
-
-- The code is structured for both browser-based pages and JSON APIs.
-- `app/services/queue_service.py` contains core queue logic.
-- SMS sending can use Celery if available, otherwise a thread fallback is used.
-- `app/tasks/cleanup_tasks.py` is a placeholder and currently empty.
-- `static/qrcodes/` stores generated branch QR images.
-- Default development DB is `pbqms_dev.sqlite3`; test DB is `pbqms_test.sqlite3`.
-
-## Summary
-
-This project is ready for local development and Docker deployment. The main queue flows are implemented, and the repository contains a working Flask application with roles, queue management, notifications, and live display support.

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit' if user else 'New' }} User — Admin Dashboard{% endblock %}
+{% block title %}{{ 'Edit' if user else 'New' }} User — Hospital Administration{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">{{ 'Edit User' if user else 'New User' }}</div>
-    <div class="pb-page-sub">Manage system users, roles, and branch assignment</div>
+    <div class="pb-page-sub">Manage staff accounts, roles, and hospital location assignments</div>
   </div>
   <a href="/admin/users" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
@@ -38,14 +38,19 @@
           <select id="role" name="role" class="pb-form-control" required>
             <option value="">Select role</option>
             {% for role in roles %}
-            <option value="{{ role.name }}" {% if user and user.role == role %}selected{% endif %}>{{ role.value.replace('_',' ').title() }}</option>
+            <option value="{{ role.name }}" {% if user and user.role == role %}selected{% endif %}>{{ {
+              'ADMIN': 'System Administrator',
+              'BRANCH_MANAGER': 'Department / Operations Manager',
+              'LOBBY_OFFICER': 'Reception / OPD Staff',
+              'LOAN_OFFICER': 'Department Staff'
+            }.get(role.name, role.value.replace('_',' ').title()) }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="pb-form-label" for="branch_id">Branch</label>
+          <label class="pb-form-label" for="branch_id">Hospital location</label>
           <select id="branch_id" name="branch_id" class="pb-form-control">
-            <option value="">All branches</option>
+            <option value="">All locations</option>
             {% for branch in branches %}
             <option value="{{ branch.id }}" {% if user and user.branch_id == branch.id %}selected{% endif %}>{{ branch.name }}</option>
             {% endfor %}

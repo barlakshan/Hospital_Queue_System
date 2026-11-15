@@ -32,12 +32,10 @@ def push_queue_update(branch_id: int):
             "waiting_count": waiting_count,
             "serving": [{
                 "token":           t.token_number,
-                "customer_name":   t.customer.full_name,
                 "counter":         t.counter.label if t.counter else "",
                 "service":         t.service_type.name,
                 "service_code":    t.service_type.code,
                 "is_priority":     t.is_priority,
-                "priority_reason": t.priority_reason.value if t.is_priority else "none",
             } for t in serving],
             "next": [{
                 "token":        t.token_number,

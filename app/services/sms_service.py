@@ -14,13 +14,13 @@ class SmsService:
 
     TEMPLATES = {
         "confirmation": (
-            "Your People's Bank queue number is {token}. "
+            "Your Melsta Hospitals patient token is {token}. "
             "Service: {service}. Estimated wait: {wait} mins. "
-            "Thank you for choosing People's Bank Sri Lanka."
+            "We will notify you when it is your turn."
         ),
         "call_notification": (
-            "People's Bank: Token {token} - Please proceed to {counter}. "
-            "Officer: {officer}. Branch: {branch}. Thank you."
+            "Melsta Hospitals: Patient token {token} - Please proceed to {counter}. "
+            "Staff: {officer}. Location: {branch}."
         ),
     }
 
@@ -185,7 +185,7 @@ class SmsService:
             json={
                 "to":      mobile,
                 "message": message,
-                "from":    current_app.config.get("MOBITEL_SENDER_ID", "PPLSBANK"),
+                "from":    current_app.config.get("MOBITEL_SENDER_ID", "MELSTAHOSP"),
             },
             timeout=10,
         )
@@ -203,7 +203,7 @@ class SmsService:
         if not token:
             raise RuntimeError("TEXTLK_API_TOKEN not configured")
 
-        sender = current_app.config.get("TEXTLK_SENDER_ID", "PPLSBANK")
+        sender = current_app.config.get("TEXTLK_SENDER_ID", "MELSTAHOSP")
 
         # Normalise recipient to format like 94771234567 (no +)
         recipient = mobile.replace("+", "").replace(" ", "").replace("-", "")

@@ -51,8 +51,9 @@ with app.app_context():
                 "completion_pct": round(completed / total * 100) if total else 0,
             },
             service_stats=[{"name": n, "code": c, "count": cnt} for n, c, cnt in service_rows],
-            other_pending=QueueToken.query.filter_by(branch_id=branch_id, queue_date=today,
-                                                      status=TokenStatus.WAITING).join(ServiceType).filter(ServiceType.code == "OT").count(),
+            priority_waiting=QueueToken.query.filter_by(branch_id=branch_id, queue_date=today,
+                                                        status=TokenStatus.WAITING,
+                                                        is_priority=True).count(),
             daily_counts=daily_counts,
         )
         print("Template rendered successfully!")

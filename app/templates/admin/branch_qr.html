@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Branch QR Code — Admin Dashboard{% endblock %}
+{% block title %}Location QR Code — Admin Dashboard{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">{{ branch.name }} — QR Code</div>
-    <div class="pb-page-sub">Branch code: {{ branch.code }}</div>
+    <div class="pb-page-sub">Location code: {{ branch.code }}</div>
   </div>
   <a href="/admin/branches" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back to branches</a>
 </div>
@@ -18,7 +18,7 @@
     {% if qr_image_url %}
     <img src="{{ qr_image_url }}" alt="QR code for {{ branch.name }}" style="max-width:280px;width:100%;height:auto;border:1px solid #e5e7eb;padding:12px;border-radius:12px;background:#fff;">
     {% endif %}
-    <p style="margin-top:14px;color:#666;">Scan this code to open the customer registration page for {{ branch.name }}.</p>
+    <p style="margin-top:14px;color:#666;">Scan this code to open the patient registration page for {{ branch.name }}.</p>
     <a href="{{ url_for('display.screen', branch_code=branch.code) }}" target="_blank" class="btn-pb-primary" style="margin-top:8px;">Open live display</a>
   </div>
 </div>

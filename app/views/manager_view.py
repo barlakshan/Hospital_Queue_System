@@ -30,9 +30,9 @@ def dashboard():
                        .filter_by(branch_id=branch_id, queue_date=today, is_priority=True)
                        .order_by(QueueToken.issued_at.desc()).limit(20).all())
 
-    other_tokens = (QueueToken.query
-                    .filter_by(branch_id=branch_id, queue_date=today, status=TokenStatus.WAITING)
-                    .join(ServiceType).filter(ServiceType.code == "OT").all())
+    waiting_tokens = (QueueToken.query
+                      .filter_by(branch_id=branch_id, queue_date=today, status=TokenStatus.WAITING)
+                      .order_by(QueueToken.is_priority.desc(), QueueToken.id.asc()).all())
 
     # Officer performance
     officers_raw = (db.session.query(User,
@@ -56,8 +56,8 @@ def dashboard():
                 .filter(QueueToken.branch_id == branch_id, QueueToken.queue_date == today)
                 .group_by(ServiceType.id).all())
 
-    colour_map = {"AO": "#c80000", "AC": "#99c630", "FD": "#FFCB47",
-                  "LN": "#4c4e54", "OT": "#d1d2d5"}
+    colour_map = {"G": "#087f8c", "S": "#21a5a8", "L": "#99c630",
+                  "R": "#FFCB47", "P": "#4c4e54", "B": "#d1d2d5"}
     service_stats = [{"name": n, "code": c, "count": cnt,
                        "colour": colour_map.get(c, "#888")}
                      for n, c, cnt in svc_rows]
@@ -70,7 +70,7 @@ def dashboard():
             "avg_wait": 18, "avg_rating": round(float(avg_r_v or 0), 1),
             "rating_count": r_count, "delta_pct": 8,
         },
-        priority_tokens=priority_tokens, other_tokens=other_tokens,
+        priority_tokens=priority_tokens, waiting_tokens=waiting_tokens,
         officers=officers, service_stats=service_stats,
         service_labels=[s["name"] for s in service_stats],
         service_counts=[s["count"] for s in service_stats],
@@ -103,7 +103,7 @@ def officers():
             return redirect(url_for("manager_view.officers"))
 
         if role_value not in {"LOBBY_OFFICER", "LOAN_OFFICER"}:
-            flash("Managers can only add lobby or loan officers.", "danger")
+            flash("Managers can only add reception or department staff.", "danger")
             return redirect(url_for("manager_view.officers"))
 
         try:
@@ -122,7 +122,7 @@ def officers():
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
-        flash("Officer created successfully.", "success")
+        flash("Staff account created successfully.", "success")
         return redirect(url_for("manager_view.officers"))
 
     officers = []
@@ -183,8 +183,12 @@ def analytics():
                 "completion_pct": round(completed / total * 100) if total else 0,
             },
             service_stats=[{"name": n, "code": c, "count": cnt} for n, c, cnt in service_rows],
-            other_pending=QueueToken.query.filter_by(branch_id=branch_id, queue_date=today,
-                                                     status=TokenStatus.WAITING).join(ServiceType).filter(ServiceType.code == "OT").count(),
+            priority_waiting=QueueToken.query.filter_by(
+                branch_id=branch_id,
+                queue_date=today,
+                status=TokenStatus.WAITING,
+                is_priority=True,
+            ).count(),
             daily_counts=daily_counts,
         )
     except Exception as e:
@@ -218,20 +222,20 @@ def customers():
 
 
 @manager_view_bp.route("/queue/other")
+@manager_view_bp.route("/queue/departments")
 @login_required
 @require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN)
 def other_queue():
     today     = date.today()
     branch_id = current_user.branch_id
 
-    other_tokens = (QueueToken.query
-                    .filter_by(branch_id=branch_id, queue_date=today, status=TokenStatus.WAITING)
-                    .join(ServiceType).filter(ServiceType.code == "OT")
-                    .order_by(QueueToken.issued_at.asc()).all())
+    waiting_tokens = (QueueToken.query
+                      .filter_by(branch_id=branch_id, queue_date=today, status=TokenStatus.WAITING)
+                      .order_by(QueueToken.is_priority.desc(), QueueToken.id.asc()).all())
 
     return render_template("manager/other_queue.html",
         branch=current_user.branch,
-        other_tokens=other_tokens,
+        other_tokens=waiting_tokens,
         manager_counter_id=None,
     )
 

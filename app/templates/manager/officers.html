@@ -5,14 +5,14 @@
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">Officer Management</div>
-    <div class="pb-page-sub">Add lobby and loan officers for {{ branch.name if branch else 'your branch' }}</div>
+    <div class="pb-page-sub">Add reception and department staff for {{ branch.name if branch else 'your location' }}</div>
   </div>
   <a href="/manager/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
 
 <div class="pb-card" style="max-width:760px; margin-bottom:16px;">
   <div class="pb-card-header">
-    <div class="pb-card-title"><i class="ti ti-user-plus" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Add officer</div>
+    <div class="pb-card-title"><i class="ti ti-user-plus" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Add staff member</div>
   </div>
   <div class="pb-card-body">
     <form method="POST">
@@ -37,18 +37,21 @@
         <select id="role" name="role" class="pb-form-control" required>
           <option value="">Select role</option>
           {% for role in allowed_roles %}
-          <option value="{{ role.name }}">{{ role.value.replace('_',' ').title() }}</option>
+          <option value="{{ role.name }}">{{ {
+            'LOBBY_OFFICER': 'Reception / OPD Staff',
+            'LOAN_OFFICER': 'Department Staff'
+          }.get(role.name, role.value.replace('_',' ').title()) }}</option>
           {% endfor %}
         </select>
       </div>
-      <button type="submit" class="btn-pb-primary">Create officer</button>
+      <button type="submit" class="btn-pb-primary">Create staff account</button>
     </form>
   </div>
 </div>
 
 <div class="pb-card">
   <div class="pb-card-header">
-    <div class="pb-card-title"><i class="ti ti-users" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Officers in this branch</div>
+    <div class="pb-card-title"><i class="ti ti-users" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Staff at this location</div>
   </div>
   <div class="pb-card-body" style="padding:0;">
     <table class="pb-table">
@@ -61,10 +64,13 @@
           <td><strong>{{ officer.employee_id }}</strong></td>
           <td>{{ officer.full_name }}</td>
           <td>{{ officer.email }}</td>
-          <td>{{ officer.role.value.replace('_',' ').title() }}</td>
+          <td>{{ {
+            'lobby_officer': 'Reception / OPD Staff',
+            'loan_officer': 'Department Staff'
+          }.get(officer.role.value, officer.role.value.replace('_',' ').title()) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="text-center py-4" style="color:#aaa;">No officers added yet.</td></tr>
+        <tr><td colspan="4" class="text-center py-4" style="color:#aaa;">No staff accounts added yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

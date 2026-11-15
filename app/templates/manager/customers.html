@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Branch Customers — Manager Dashboard{% endblock %}
+{% block title %}Patients — Operations Dashboard{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
-    <div class="pb-page-title">Branch Customers</div>
-    <div class="pb-page-sub">Frequent and recent customers for {{ branch.name if branch else 'your branch' }}</div>
+    <div class="pb-page-title">Patients</div>
+    <div class="pb-page-sub">Recent patients for {{ branch.name if branch else 'your location' }}</div>
   </div>
   <a href="/manager/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
 
 <div class="pb-card">
   <div class="pb-card-header">
-    <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Customer list</div>
+    <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Patient list</div>
     <span class="pb-badge">{{ total }} total</span>
   </div>
   <div class="pb-card-body" style="padding:0;">
@@ -26,7 +26,7 @@
           <td><strong>{{ customer.visits }}</strong></td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="text-center py-4" style="color:#aaa;">No customers found.</td></tr>
+        <tr><td colspan="3" class="text-center py-4" style="color:#aaa;">No patients found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

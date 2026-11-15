@@ -50,8 +50,10 @@ def register():
 
     try:
         priority_reason = PriorityReason[data.get("priority_reason", "NONE").upper()]
-    except KeyError:
-        priority_reason = PriorityReason.NONE
+    except (AttributeError, KeyError):
+        return jsonify({
+            "error": "Invalid priority reason. Choose none, emergency, urgent, elderly, pregnant, disabled, or child."
+        }), 400
     is_priority = priority_reason != PriorityReason.NONE
 
     try:
@@ -85,6 +87,7 @@ def register():
 @queue_bp.get("/token/<int:token_id>/status")
 def token_status(token_id):
     token = QueueToken.query.get_or_404(token_id)
+    position = QueueService.get_position(token)
     now_serving = (QueueToken.query
                    .filter_by(branch_id=token.branch_id,
                                service_type_id=token.service_type_id,
@@ -95,7 +98,8 @@ def token_status(token_id):
     return jsonify({
         "token_number": token.token_number,
         "status":       token.status.value,
-        "position":     QueueService.get_position(token),
+        "position":     position,
+        "estimated_wait": position * token.service_type.avg_service_min,
         "now_serving":  now_serving.token_number if now_serving else None,
         "counter":      token.counter.label if token.counter else None,
         "officer":      token.served_by_officer.full_name if token.served_by_officer else None,
@@ -262,16 +266,15 @@ def display_state(branch_code):
         "waiting_count": waiting_count,
         "serving": [{
             "token":           t.token_number,
-            "customer_name":   t.customer.full_name,
             "counter":         t.counter.label if t.counter else "",
             "service":         t.service_type.name,
             "service_code":    t.service_type.code,
             "is_priority":     t.is_priority,
-            "priority_reason": t.priority_reason.value,
         } for t in serving],
         "next": [{
             "token":        t.token_number,
             "service":      t.service_type.name,
             "service_code": t.service_type.code,
+            "is_priority":  t.is_priority,
         } for t in waiting_next],
     })

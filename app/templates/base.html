@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}People's Bank — Queue System{% endblock %}</title>
+  <title>{% block title %}Melsta Hospitals — Patient Flow{% endblock %}</title>
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
 
   <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <!-- Tabler Icons -->
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
-  <!-- People's Bank Design System -->
+  <!-- Hospital queue design system -->
   <link href="{{ url_for('static', filename='css/pbqms.css') }}" rel="stylesheet">
 
   {% block head %}{% endblock %}
@@ -21,16 +21,16 @@
 <!-- Top navbar -->
 <nav class="pb-navbar">
   <a class="pb-navbar-brand" href="/">
-    <div class="pb-navbar-logo">PB</div>
+    <div class="pb-navbar-logo">MH</div>
     <div>
-      <div class="pb-navbar-name">People's Bank</div>
-      <div style="font-size:9px;color:rgba(255,255,255,.6);">Queue Management System</div>
+      <div class="pb-navbar-name">Melsta Hospitals</div>
+      <div style="font-size:9px;color:rgba(255,255,255,.6);">Smart Queue &amp; Patient Flow</div>
     </div>
   </a>
   <div class="pb-navbar-right">
     <div class="pb-navbar-chip">
       <i class="ti ti-building" style="font-size:11px;margin-right:3px"></i>
-      {{ current_user.branch.name if current_user.branch else 'All Branches' }}
+      {{ current_user.branch.name if current_user.branch else 'All Locations' }}
     </div>
     <div class="pb-navbar-chip" id="connection-status">
       <span class="pb-online-dot"></span> Online
@@ -39,7 +39,12 @@
       <div class="pb-navbar-avatar">{{ current_user.full_name[:2].upper() }}</div>
       <div>
         <div>{{ current_user.full_name }}</div>
-        <div style="font-size:9px;opacity:.6;">{{ current_user.role.value.replace('_',' ').title() }}</div>
+        <div style="font-size:9px;opacity:.6;">{{ {
+          'admin': 'System Administrator',
+          'branch_manager': 'Department / Operations Manager',
+          'lobby_officer': 'Reception / OPD Staff',
+          'loan_officer': 'Department Staff'
+        }.get(current_user.role.value, current_user.role.value.replace('_',' ').title()) }}</div>
       </div>
     </div>
   </div>
@@ -51,11 +56,11 @@
 
   {% if current_user.role.value in ['lobby_officer','loan_officer'] %}
     <a href="/officer/dashboard" class="pb-sidebar-link {% if request.path == '/officer/dashboard' %}active{% endif %}">
-      <i class="ti ti-layout-dashboard"></i> Dashboard
+      <i class="ti ti-layout-dashboard"></i> Staff Dashboard
       <span class="pb-sidebar-badge" id="waiting-count">—</span>
     </a>
     <a href="/officer/queue" class="pb-sidebar-link {% if '/queue' in request.path %}active{% endif %}">
-      <i class="ti ti-list-numbers"></i> My Queue
+      <i class="ti ti-list-numbers"></i> Department Queue
     </a>
     <a href="/officer/history" class="pb-sidebar-link">
       <i class="ti ti-history"></i> History
@@ -70,13 +75,13 @@
       <i class="ti ti-chart-bar"></i> Analytics
     </a>
     <a href="{{ url_for('manager_view.officers') }}" class="pb-sidebar-link">
-      <i class="ti ti-users"></i> Officers
+      <i class="ti ti-users"></i> Staff
     </a>
-    <a href="/manager/queue/other" class="pb-sidebar-link">
-      <i class="ti ti-circle-dots"></i> Other Queue
+    <a href="/manager/queue/departments" class="pb-sidebar-link">
+      <i class="ti ti-circle-dots"></i> Department Queue
     </a>
     <a href="/manager/customers" class="pb-sidebar-link">
-      <i class="ti ti-address-book"></i> Customers
+      <i class="ti ti-address-book"></i> Patients
     </a>
   {% endif %}
 
@@ -85,16 +90,19 @@
       <i class="ti ti-layout-dashboard"></i> Dashboard
     </a>
     <a href="/admin/branches" class="pb-sidebar-link">
-      <i class="ti ti-building"></i> Branches
+      <i class="ti ti-building"></i> Hospital Locations
     </a>
     <a href="/admin/users" class="pb-sidebar-link">
       <i class="ti ti-users"></i> Users
+    </a>
+    <a href="{{ url_for('admin_view.services') }}" class="pb-sidebar-link">
+      <i class="ti ti-stethoscope"></i> Departments &amp; Services
     </a>
     <a href="/admin/analytics" class="pb-sidebar-link">
       <i class="ti ti-chart-area"></i> Analytics
     </a>
     <a href="/admin/customers" class="pb-sidebar-link">
-      <i class="ti ti-address-book"></i> Customers
+      <i class="ti ti-address-book"></i> Patients
     </a>
     <a href="/admin/audit-logs" class="pb-sidebar-link">
       <i class="ti ti-shield-check"></i> Audit Logs
@@ -104,10 +112,10 @@
   <div class="pb-sidebar-section" style="margin-top:12px;">Tools</div>
   {% if current_user.role.value == 'admin' %}
     <a href="/admin/branches" class="pb-sidebar-link">
-      <i class="ti ti-tv"></i> Branch Displays
+      <i class="ti ti-tv"></i> Waiting-Area Displays
     </a>
     <a href="/admin/branches" class="pb-sidebar-link">
-      <i class="ti ti-qrcode"></i> Branch QR Codes
+      <i class="ti ti-qrcode"></i> Registration QR Codes
     </a>
   {% else %}
     <a href="/display/{{ current_user.branch.code if current_user.branch else '' }}" target="_blank" class="pb-sidebar-link">
@@ -115,7 +123,7 @@
     </a>
     {% if current_user.branch %}
     <a href="{{ url_for('manager_view.branch_qr') }}" class="pb-sidebar-link">
-      <i class="ti ti-qrcode"></i> Branch QR Code
+      <i class="ti ti-qrcode"></i> Registration QR Code
     </a>
     {% endif %}
   {% endif %}
@@ -148,7 +156,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Socket.IO -->
 <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.2/client-dist/socket.io.min.js"></script>
-<!-- QEMS JS -->
+<!-- Hospital queue controls -->
 <script src="{{ url_for('static', filename='js/officer-console.js') }}"></script>
 
 {% block scripts %}{% endblock %}

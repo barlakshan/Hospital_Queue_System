@@ -1,5 +1,5 @@
 /* =====================================================
-   People's Bank QEMS — Officer Console JS
+   Hospital queue — Staff Console JS
    Real-time queue management with WebSocket + AJAX
    ===================================================== */
 
@@ -52,7 +52,7 @@ const OfficerConsole = (() => {
     })
     .then(r => {
       if (r.status === 204) {
-        showToast('No customers waiting', 'info');
+        showToast('No patients waiting', 'info');
         return null;
       }
       return r.json();
@@ -159,8 +159,8 @@ const OfficerConsole = (() => {
     if (el) el.innerHTML = `
       <div class="text-center py-4 text-muted">
         <i class="ti ti-armchair-2" style="font-size:32px;opacity:.3;display:block;margin-bottom:8px;"></i>
-        No customer serving<br>
-        <small>Press "Call next" to serve the next customer</small>
+        No patient being seen<br>
+        <small>Press "Call next" to serve the next patient</small>
       </div>`;
   }
 

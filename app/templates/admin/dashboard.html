@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Admin Dashboard — People's Bank{% endblock %}
+{% block title %}System Administration — Melsta Hospitals{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">System Administration</div>
-    <div class="pb-page-sub">People's Bank Sri Lanka &nbsp;·&nbsp; All Branches</div>
+    <div class="pb-page-sub">Melsta Hospitals &nbsp;·&nbsp; All Locations</div>
   </div>
   <div style="display:flex;gap:8px;">
-    <a href="/admin/branches" class="btn-pb-primary"><i class="ti ti-plus"></i> New branch</a>
+    <a href="/admin/branches" class="btn-pb-primary"><i class="ti ti-plus"></i> New location</a>
     <a href="/admin/users" class="btn-pb-outline"><i class="ti ti-user-plus"></i> New user</a>
     <a href="/api/admin/analytics/export" class="btn-pb-outline"><i class="ti ti-download"></i> Export</a>
   </div>
@@ -19,8 +19,8 @@
   <div class="pb-stat-card">
     <div class="pb-stat-icon red"><i class="ti ti-building"></i></div>
     <div class="pb-stat-value">{{ stats.total_branches }}</div>
-    <div class="pb-stat-label">Active branches</div>
-    <div class="pb-stat-delta up">Island-wide</div>
+    <div class="pb-stat-label">Active locations</div>
+    <div class="pb-stat-delta up">Hospital-wide</div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon green"><i class="ti ti-ticket"></i></div>
@@ -128,9 +128,9 @@
       <canvas id="role-chart" height="120"></canvas>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#c80000;"></div>Admin ({{ role_counts.admin }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#FFCB47;"></div>Branch Manager ({{ role_counts.branch_manager }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#99c630;"></div>Lobby Officer ({{ role_counts.lobby_officer }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Loan Officer ({{ role_counts.loan_officer }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#FFCB47;"></div>Operations Manager ({{ role_counts.branch_manager }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#99c630;"></div>Reception / OPD Staff ({{ role_counts.lobby_officer }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Department Staff ({{ role_counts.loan_officer }})</div>
       </div>
     </div>
   </div>
@@ -160,10 +160,10 @@
   </div>
 </div>
 
-<!-- Customer database -->
+<!-- Patient register -->
 <div class="pb-card" style="margin-top:16px;">
   <div class="pb-card-header">
-    <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Customer database <span style="font-size:12px;font-weight:400;color:#aaa;margin-left:4px;">for promotions &amp; analytics</span></div>
+    <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Patient register <span style="font-size:12px;font-weight:400;color:#aaa;margin-left:4px;">limited to queue contact details</span></div>
     <div style="display:flex;gap:8px;">
       <a href="/api/admin/customers?format=csv" class="btn-pb-outline" style="font-size:11px;padding:5px 10px;"><i class="ti ti-download"></i> Export CSV</a>
       <a href="/admin/customers" style="font-size:12px;color:var(--pb-red);">View all →</a>

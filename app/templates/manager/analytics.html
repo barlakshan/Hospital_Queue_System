@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Manager Analytics — People's Bank{% endblock %}
+{% block title %}Department Analytics — Melsta Hospitals{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
@@ -27,12 +27,12 @@
     <div class="pb-stat-icon yellow"><i class="ti ti-chart-bar"></i></div>
     <div class="pb-stat-value">{{ stats.avg_rating }}★</div>
     <div class="pb-stat-label">Avg rating</div>
-    <div class="pb-stat-delta up">Includes customer feedback</div>
+    <div class="pb-stat-delta up">Includes patient feedback</div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon dark"><i class="ti ti-circle-dots"></i></div>
-    <div class="pb-stat-value">{{ other_pending }}</div>
-    <div class="pb-stat-label">Other queue</div>
+    <div class="pb-stat-value">{{ priority_waiting }}</div>
+    <div class="pb-stat-label">Priority patients waiting</div>
     <div class="pb-stat-delta up">Needs manager action</div>
   </div>
 </div>

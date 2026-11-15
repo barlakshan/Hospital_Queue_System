@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Manager Dashboard — People's Bank{% endblock %}
+{% block title %}Operations Dashboard — Melsta Hospitals{% endblock %}
 
 {% block content %}
 <div class="pb-page-header">
@@ -9,7 +9,7 @@
   </div>
   <div style="display:flex;gap:8px;">
     <a href="/manager/analytics" class="btn-pb-outline"><i class="ti ti-chart-area"></i> Analytics</a>
-    <a href="/manager/customers" class="btn-pb-outline"><i class="ti ti-address-book"></i> Customers</a>
+    <a href="/manager/customers" class="btn-pb-outline"><i class="ti ti-address-book"></i> Patients</a>
   </div>
 </div>
 
@@ -94,7 +94,7 @@
         </tbody>
       </table>
       {% if not priority_tokens %}
-        <div class="text-center py-4" style="color:#aaa;font-size:13px;">No priority customers today</div>
+        <div class="text-center py-4" style="color:#aaa;font-size:13px;">No priority patients today</div>
       {% endif %}
     </div>
   </div>
@@ -134,36 +134,15 @@
   </div>
 </div>
 
-<!-- Other queue -->
+<!-- Department queues -->
 <div class="pb-card" style="margin-top:16px;">
   <div class="pb-card-header">
-    <div class="pb-card-title"><i class="ti ti-circle-dots" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>"Other" queue — requires manager action</div>
-    <span class="pb-badge red">{{ other_tokens | length }} pending</span>
+    <div class="pb-card-title"><i class="ti ti-list-numbers" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Department queues</div>
+    <span class="pb-badge red">{{ waiting_tokens | length }} patients waiting</span>
   </div>
-  <div class="pb-card-body" style="padding:0;">
-    <table class="pb-table">
-      <thead><tr><th>Token</th><th>Customer</th><th>Mobile</th><th>Reason</th><th>Issued</th><th>Action</th></tr></thead>
-      <tbody>
-        {% for t in other_tokens %}
-        <tr>
-          <td><strong>{{ t.token_number }}</strong></td>
-          <td>{{ t.customer.full_name }}</td>
-          <td style="color:#888;font-size:12px;">{{ t.customer.mobile }}</td>
-          <td style="max-width:180px;font-size:12px;">{{ t.custom_reason or '—' }}</td>
-          <td style="color:#888;font-size:12px;">{{ t.issued_at.strftime('%H:%M') }}</td>
-          <td>
-            <button class="btn-pb-primary" style="font-size:11px;padding:4px 10px;"
-              onclick="callOther({{ t.id }})">
-              <i class="ti ti-phone-call"></i> Call
-            </button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if not other_tokens %}
-      <div class="text-center py-4" style="color:#aaa;font-size:13px;">No "Other" requests pending</div>
-    {% endif %}
+  <div class="pb-card-body">
+    <div class="text-muted mb-3">View the hospital-wide waiting list, grouped by configured department services.</div>
+    <a href="/manager/queue/departments" class="btn-pb-outline">View department queue</a>
   </div>
 </div>
 {% endblock %}
@@ -185,16 +164,5 @@
     options: { responsive:true, cutout:'65%', plugins:{ legend:{ display:false } } }
   });
 
-  function callOther(tokenId) {
-    if (!confirm('Call this "Other" customer to your counter?')) return;
-    fetch(`/api/queue/call-next`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ token_id: tokenId, counter_id: {{ manager_counter_id or 'null' }} })
-    })
-    .then(r => r.json())
-    .then(() => location.reload())
-    .catch(() => alert('Error calling customer'));
-  }
 </script>
 {% endblock %}

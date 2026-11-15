@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Token — People's Bank</title>
+  <title>Your Patient Token — Melsta Hospitals</title>
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/pbqms.css') }}" rel="stylesheet">
   <style>
@@ -49,8 +49,8 @@
 <div class="wrap">
   <div class="top-bar">
     <div class="top-bar-brand">
-      <div class="brand-circle">PB</div>
-      <div><div class="brand-nm">People's Bank</div><div class="brand-sub">{{ branch_name }}</div></div>
+      <div class="brand-circle">MH</div>
+      <div><div class="brand-nm">Melsta Hospitals</div><div class="brand-sub">{{ branch_name }}</div></div>
     </div>
     <div style="font-size:10px;color:rgba(255,255,255,.6);" id="live-time"></div>
   </div>
@@ -61,7 +61,7 @@
       <div class="t-svc">{{ service_name }}</div>
       <div class="t-num" id="token-number">{{ token_number }}</div>
       <div class="t-row">
-        <div class="t-box"><div class="t-val" id="position">{{ position }}</div><div class="t-lbl">Ahead of you</div></div>
+        <div class="t-box"><div class="t-val" id="position">{{ position }}</div><div class="t-lbl">People ahead</div></div>
         <div class="t-box"><div class="t-val" id="est-wait">~{{ estimated_wait }}m</div><div class="t-lbl">Est. wait</div></div>
         <div class="t-box"><div class="t-val" id="now-serving">—</div><div class="t-lbl">Now serving</div></div>
       </div>
@@ -170,6 +170,9 @@
       const pct = Math.max(5, 100 - (data.position / 20 * 100));
       document.getElementById('wait-fill').style.width = pct + '%';
     }
+    if (typeof data.estimated_wait === 'number') {
+      document.getElementById('est-wait').textContent = `~${data.estimated_wait}m`;
+    }
 
     if (data.now_serving) {
       document.getElementById('now-serving').textContent = data.now_serving;
@@ -183,7 +186,7 @@
       document.getElementById('status-badge').className = 'pb-badge red';
       if (data.counter) document.getElementById('call-counter').textContent = data.counter;
       if (data.officer) document.getElementById('call-officer').innerHTML =
-        `<i class="ti ti-user"></i> Officer: ${data.officer}`;
+        `<i class="ti ti-user"></i> Staff: ${data.officer}`;
       clearInterval(pollTimer);
       // Show rating after 3 min
       setTimeout(() => document.getElementById('rating-section').style.display = 'block', 180000);

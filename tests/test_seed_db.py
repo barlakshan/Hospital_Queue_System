@@ -1,6 +1,7 @@
 from click.testing import CliRunner
 
 from app import create_app
+from app.extensions import db
 from app.models import ServiceType
 
 
@@ -9,7 +10,7 @@ def test_seed_db_creates_schema_and_inserts_service_types():
     runner = CliRunner()
 
     with app.app_context():
-        ServiceType.query.delete()
+        db.drop_all()
 
     result = runner.invoke(app.cli, ["seed-db"])
 
@@ -17,4 +18,13 @@ def test_seed_db_creates_schema_and_inserts_service_types():
     assert "Service types seeded" in result.output
 
     with app.app_context():
-        assert ServiceType.query.count() == 5
+        active_services = ServiceType.query.filter_by(is_active=True).all()
+        assert len(active_services) == 6
+        assert {service.name for service in active_services} == {
+            "General OPD",
+            "Specialist Consultation",
+            "Laboratory",
+            "Radiology",
+            "Pharmacy",
+            "Billing / Cashier",
+        }

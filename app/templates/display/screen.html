@@ -62,11 +62,12 @@
 
     /* Ticker */
     .d-ticker { background:rgba(255,255,255,1); border-radius:8px; padding:10px 16px; overflow:hidden; box-shadow:0 1px 0 rgba(0,0,0,.04); }
-    .d-ticker-inner { white-space:nowrap; display:inline-block; animation:pb-scroll 18s linear infinite; font-size:14px; color:#c80000; letter-spacing:.3px; }
+    .d-ticker-inner { white-space:nowrap; display:inline-block; animation:pb-scroll 120s linear infinite; font-size:14px; color:#c80000; letter-spacing:.3px; }
     @keyframes pb-scroll { 0%{transform:translateX(100vw)} 100%{transform:translateX(-100%)} }
 
     /* Flash animation for new token */
-    @keyframes tokenFlash {
+    @keyframes tokenFlash {    flask db current
+    flask db upgrade
       0%   { opacity:0; transform:scale(.75); }
       60%  { opacity:1; transform:scale(1.05); }
       100% { transform:scale(1); }
@@ -80,10 +81,10 @@
   <!-- Header -->
   <div class="d-header">
     <div class="d-logo-row">
-      <div class="d-logo-mark">PB</div>
+      <div class="d-logo-mark">MH</div>
       <div>
-        <div class="d-logo-text">PEOPLE'S BANK</div>
-        <div class="d-logo-sub">{{ branch.name }} &nbsp;·&nbsp; Queue Display</div>
+        <div class="d-logo-text">MELSTA HOSPITALS</div>
+        <div class="d-logo-sub">{{ branch.name }} &nbsp;·&nbsp; Patient Queue</div>
       </div>
     </div>
     <div class="d-header-right">
@@ -105,7 +106,7 @@
     <div class="d-serving-card">
       <div class="d-serving-label">Now serving</div>
       <div class="d-serving-token" id="d-token">—</div>
-      <div class="d-serving-name" id="d-name">Waiting for first customer</div>
+      <div class="d-serving-name" id="d-name">Waiting for the next patient</div>
       <div class="d-serving-counter" id="d-counter"></div>
       <div class="d-serving-svc" id="d-svc"></div>
       <div class="d-priority-badge" id="d-priority" style="display:none;">
@@ -128,10 +129,7 @@
       <div>
         <div class="d-panel-title" style="padding-left:4px;margin-bottom:8px;">Up next</div>
         <div class="d-next-row-wrap" id="d-next-badges">
-          <div class="d-next-badge d-next-red"><div class="d-next-num nb-red" id="next-ao">—</div><div class="d-next-lbl">Acct. Opening</div></div>
-          <div class="d-next-badge d-next-yellow"><div class="d-next-num nb-yellow" id="next-fd">—</div><div class="d-next-lbl">Fixed Deposit</div></div>
-          <div class="d-next-badge d-next-green"><div class="d-next-num nb-green" id="next-ln">—</div><div class="d-next-lbl">Loans</div></div>
-          <div class="d-next-badge d-next-dark"><div class="d-next-num nb-dark" id="next-ot">—</div><div class="d-next-lbl">Other</div></div>
+          <div class="text-muted">Loading queue…</div>
         </div>
       </div>
     </div>
@@ -140,22 +138,13 @@
   <!-- Ticker -->
   <div class="d-ticker">
     <div class="d-ticker-inner" id="d-ticker">
-      Welcome to People's Bank &nbsp;·&nbsp; Please take a seat and wait for your token number to be called &nbsp;·&nbsp;
-      Priority service available for elderly, pregnant, and disabled customers &nbsp;·&nbsp;
-      Thank you for banking with People's Bank Sri Lanka
+      Welcome to Melsta Hospitals &nbsp;·&nbsp; Please take a seat and wait for your patient token to be called &nbsp;·&nbsp;
+      Priority assistance is available for patients who need it &nbsp;·&nbsp;
+      Please proceed to the room or counter shown when your token is called.
     </div>
   </div>
 
-  <!-- Ticker 2 -->
-  <div class="d-ticker">
-    <div class="d-ticker-inner" id="d-ticker">
-      මහජන බැංකුවට සාදරයෙන් පිළිගනිමු &nbsp;·&nbsp; කරුණාකර අසුන් ගෙන ඔබගේ ටෝකන් අංකයට ඇමතුමක් ලැබෙන තෙක් රැඳී සිටින්න &nbsp;·&nbsp;
-      වැඩිහිටි, ගර්භනී සහ ආබාධිත ගනුදෙනුකරුවන් සඳහා ප්‍රමුඛතා සේවාව ලබා ගත හැකිය &nbsp;·&nbsp;
-      ශ්‍රී ලංකා මහජන බැංකුව සමඟ බැංකු කටයුතු කිරීම ගැන ඔබට ස්තූතියි.
-    </div>
   </div>
-
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.2/client-dist/socket.io.min.js"></script>
 <script src="{{ url_for('static', filename='js/queue-display.js') }}"></script>
@@ -170,9 +159,27 @@
     const waitingEl = document.getElementById('waiting-count');
     if (waitingEl) waitingEl.textContent = data.waiting_count || 0;
 
+    const nextEl = document.getElementById('d-next-badges');
+    nextEl.textContent = '';
+    (data.next || []).forEach((item, index) => {
+      const badge = document.createElement('div');
+      badge.className = `d-next-badge ${['d-next-red', 'd-next-yellow', 'd-next-green', 'd-next-dark'][index % 4]}`;
+      const token = document.createElement('div');
+      token.className = 'd-next-num';
+      token.textContent = item.token;
+      const service = document.createElement('div');
+      service.className = 'd-next-lbl';
+      service.textContent = item.service;
+      badge.append(token, service);
+      nextEl.appendChild(badge);
+    });
+    if (!data.next || !data.next.length) {
+      nextEl.textContent = 'No patients waiting';
+    }
+
     if (!data.serving || !data.serving.length) {
       document.getElementById('d-token').textContent = '—';
-      document.getElementById('d-name').textContent = 'Waiting for first customer';
+      document.getElementById('d-name').textContent = 'Waiting for the next patient';
       document.getElementById('d-counter').textContent = '';
       document.getElementById('d-svc').textContent = '';
       document.getElementById('d-priority').style.display = 'none';
@@ -191,41 +198,41 @@
       tokenEl.style.transform = 'scale(1)';
     }, 250);
 
-    document.getElementById('d-name').textContent    = primary.customer_name || 'Waiting';
+    document.getElementById('d-name').textContent    = 'Please proceed to';
     document.getElementById('d-counter').textContent = primary.counter || '';
     document.getElementById('d-svc').textContent     = primary.service || '';
 
     const priBadge = document.getElementById('d-priority');
     const priText = document.getElementById('d-priority-text');
-    if (primary.is_priority && primary.priority_reason && primary.priority_reason !== 'none') {
+    if (primary.is_priority) {
       priBadge.style.display = 'inline-flex';
-      priText.textContent = 'Priority — ' + primary.priority_reason.charAt(0).toUpperCase() + primary.priority_reason.slice(1);
+      priText.textContent = 'Priority patient';
     } else {
       priBadge.style.display = 'none';
     }
 
     const recentEl = document.getElementById('d-recent-list');
-    recentEl.innerHTML = data.serving.map(t => `
-      <div class="d-recent-row">
-        <div class="d-recent-num">${t.token}</div>
-        <div class="d-recent-name">${t.customer_name}</div>
-        <div class="d-recent-ctr">${t.counter}</div>
-      </div>
-    `).join('');
-
-    const nextMap = {};
-    (data.next || []).forEach(t => {
-      if (!nextMap[t.service_code]) nextMap[t.service_code] = t.token;
+    recentEl.textContent = '';
+    data.serving.forEach(t => {
+      const row = document.createElement('div');
+      row.className = 'd-recent-row';
+      const token = document.createElement('div');
+      token.className = 'd-recent-num';
+      token.textContent = t.token;
+      const service = document.createElement('div');
+      service.className = 'd-recent-name';
+      service.textContent = t.service;
+      const counter = document.createElement('div');
+      counter.className = 'd-recent-ctr';
+      counter.textContent = t.counter;
+      row.append(token, service, counter);
+      recentEl.appendChild(row);
     });
-    if (nextMap['AO']) document.getElementById('next-ao').textContent = nextMap['AO'];
-    if (nextMap['FD']) document.getElementById('next-fd').textContent = nextMap['FD'];
-    if (nextMap['LN']) document.getElementById('next-ln').textContent = nextMap['LN'];
-    if (nextMap['OT']) document.getElementById('next-ot').textContent = nextMap['OT'];
 
     if (primary.is_priority) {
       document.getElementById('d-ticker').textContent =
-        `Token ${primary.token} — PRIORITY — ${primary.customer_name} — Please proceed to ${primary.counter} · ` +
-        `Wheelchair access and priority seating available · Thank you for banking with People's Bank`;
+        `Token ${primary.token} — PRIORITY — Please proceed to ${primary.counter} · ` +
+        `Please proceed to the displayed room or counter · Welcome to Melsta Hospitals`;
     }
   }
 

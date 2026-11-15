@@ -1,5 +1,5 @@
 /* =====================================================
-   People's Bank QEMS — Display Screen JS
+   Hospital queue — Display Screen JS
    Real-time TV/kiosk board with WebSocket
    ===================================================== */
 
@@ -30,19 +30,21 @@ const QueueDisplay = (() => {
     animateToken(primary.token);
 
     document.getElementById('d-token').textContent   = primary.token;
-    document.getElementById('d-name').textContent    = primary.customer_name;
+    document.getElementById('d-name').textContent    = 'Please proceed to';
     document.getElementById('d-counter').textContent = primary.counter;
+    document.getElementById('d-svc').textContent     = primary.service;
 
     const priBadge = document.getElementById('d-priority');
     if (priBadge) {
       priBadge.style.display = primary.is_priority ? 'inline-block' : 'none';
-      priBadge.textContent = `★ Priority — ${primary.priority_reason}`;
+      priBadge.textContent = '★ Priority patient';
     }
 
-    updateNextList(data.serving.slice(1));
+    updateNextList(data.next || []);
     if (voiceEnabled) announce(primary);
 
-    document.getElementById('d-waiting-count').textContent = data.waiting_count;
+    const waitingCount = document.getElementById('waiting-count');
+    if (waitingCount) waitingCount.textContent = data.waiting_count;
   }
 
   function poll() {
@@ -58,14 +60,20 @@ const QueueDisplay = (() => {
   function updateNextList(serving) {
     const el = document.getElementById('d-next-list');
     if (!el) return;
-    el.innerHTML = serving.slice(0, 4).map(t => `
-      <div style="display:flex;align-items:center;justify-content:space-between;
-                  padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,.06);">
-        <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8);">${t.token}</span>
-        <span style="font-size:10px;color:rgba(255,255,255,.4);">${t.customer_name}</span>
-        <span style="font-size:10px;color:rgba(255,255,255,.35);">${t.counter}</span>
-      </div>
-    `).join('');
+    el.textContent = '';
+    serving.slice(0, 4).forEach(t => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:0.5px solid rgba(255,255,255,.06);';
+      [t.token, t.service, t.counter].forEach((value, index) => {
+        const item = document.createElement('span');
+        item.style.cssText = index === 0
+          ? 'font-size:14px;font-weight:600;color:rgba(255,255,255,.8);'
+          : 'font-size:10px;color:rgba(255,255,255,.4);';
+        item.textContent = value || '';
+        row.appendChild(item);
+      });
+      el.appendChild(row);
+    });
   }
 
   function animateToken(token) {
@@ -85,8 +93,8 @@ const QueueDisplay = (() => {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
     const text = data.is_priority
-      ? `Priority customer. Token ${data.token.split('').join(' ')}. ${data.customer_name}. Please proceed to ${data.counter}. Priority customer — please assist immediately.`
-      : `Token ${data.token.split('').join(' ')}. ${data.customer_name}. Please proceed to ${data.counter}.`;
+      ? `Priority patient. Token ${data.token.split('').join(' ')}. Please proceed to ${data.counter}.`
+      : `Token ${data.token.split('').join(' ')}. Please proceed to ${data.counter}.`;
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'en-US';
     utter.rate = 0.88;

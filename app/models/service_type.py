@@ -8,4 +8,5 @@ class ServiceType(db.Model):
     prefix          = db.Column(db.String(2), nullable=False)
     avg_service_min = db.Column(db.Integer, default=10)
     is_active       = db.Column(db.Boolean, default=True)
+    allowed_roles   = db.Column(db.JSON, nullable=False, default=list)
     tokens = db.relationship("QueueToken", back_populates="service_type", lazy="dynamic")

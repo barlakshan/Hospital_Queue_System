@@ -5,10 +5,10 @@
 
 /* ── 1. CSS custom properties ── */
 :root {
-  --pb-red:         #c80000;
-  --pb-red-hover:   #a50000;
-  --pb-red-light:   #fff0f0;
-  --pb-red-border:  rgba(200,0,0,.25);
+  --pb-red:         #087f8c;
+  --pb-red-hover:   #066771;
+  --pb-red-light:   #eaf7f8;
+  --pb-red-border:  rgba(8,127,140,.25);
 
   --pb-green:       #99c630;
   --pb-green-hover: #7aaa15;
