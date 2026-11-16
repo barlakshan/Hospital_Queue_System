@@ -55,6 +55,9 @@ def dashboard():
         "branch_manager": User.query.filter_by(is_active=True, role=UserRole.BRANCH_MANAGER).count(),
         "lobby_officer":  User.query.filter_by(is_active=True, role=UserRole.LOBBY_OFFICER).count(),
         "loan_officer":   User.query.filter_by(is_active=True, role=UserRole.LOAN_OFFICER).count(),
+        "specialist_doctor": User.query.filter_by(
+            is_active=True, role=UserRole.SPECIALIST_DOCTOR
+        ).count(),
     }
 
     weekly_data, weekly_labels = [], []
@@ -111,6 +114,7 @@ def services():
     role_labels = {
         UserRole.LOBBY_OFFICER.value: "Reception / OPD staff",
         UserRole.LOAN_OFFICER.value: "Department staff",
+        UserRole.SPECIALIST_DOCTOR.value: "Specialist Doctor",
     }
 
     if request.method == "POST":
@@ -142,7 +146,11 @@ def services():
                 service.prefix = request.form.get(f"prefix_{service.id}", "").strip().upper()
                 service.avg_service_min = int(request.form.get(f"avg_{service.id}", ""))
                 service.allowed_roles = [
-                    role.value for role in (UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER)
+                    role.value for role in (
+                        UserRole.LOBBY_OFFICER,
+                        UserRole.LOAN_OFFICER,
+                        UserRole.SPECIALIST_DOCTOR,
+                    )
                     if role.value in request.form.getlist(f"roles_{service.id}")
                 ]
                 service.is_active = request.form.get(f"active_{service.id}") == "1"

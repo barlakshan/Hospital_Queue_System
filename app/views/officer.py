@@ -10,7 +10,10 @@ from datetime import date, datetime
 
 @officer_bp.route("/dashboard")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 def dashboard():
     today      = date.today()
     branch_id  = current_user.branch_id
@@ -91,7 +94,10 @@ def dashboard():
 
 @officer_bp.route("/queue")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 def queue():
     service_ids = [s.id for s in ServiceType.query.filter(
         ServiceType.code.in_(current_user.allowed_service_codes)).all()]
@@ -112,7 +118,10 @@ def queue():
 
 @officer_bp.route("/history")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 def history():
     completed = (QueueToken.query
                  .filter_by(branch_id=current_user.branch_id,

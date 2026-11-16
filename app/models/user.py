@@ -9,6 +9,7 @@ class UserRole(enum.Enum):
     BRANCH_MANAGER = "branch_manager"
     LOBBY_OFFICER  = "lobby_officer"
     LOAN_OFFICER   = "loan_officer"
+    SPECIALIST_DOCTOR = "specialist_doctor"
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"

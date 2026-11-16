@@ -97,7 +97,7 @@
               </div>
             </td>
             <td><span class="pb-badge {{ 'red' if u.role.value == 'admin' else 'yellow' if u.role.value == 'branch_manager' else 'green' if u.role.value == 'lobby_officer' else 'dark' }}">
-              {{ u.role.value.replace('_',' ').title() }}
+              {{ 'Specialist Doctor' if u.role.value == 'specialist_doctor' else u.role.value.replace('_',' ').title() }}
             </span></td>
             <td style="color:#888;font-size:12px;">{{ u.branch.name if u.branch else 'All' }}</td>
             <td style="color:#888;font-size:12px;">{{ u.last_login.strftime('%d %b %H:%M') if u.last_login else 'Never' }}</td>
@@ -131,6 +131,7 @@
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#FFCB47;"></div>Operations Manager ({{ role_counts.branch_manager }})</div>
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#99c630;"></div>Reception / OPD Staff ({{ role_counts.lobby_officer }})</div>
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Department Staff ({{ role_counts.loan_officer }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Specialist Doctors ({{ role_counts.specialist_doctor }})</div>
       </div>
     </div>
   </div>
@@ -222,9 +223,9 @@
   new Chart(roleCtx, {
     type:'doughnut',
     data:{
-      labels:['Admin','Branch Manager','Lobby Officer','Loan Officer'],
+      labels:['Admin','Branch Manager','Lobby Officer','Loan Officer','Specialist Doctor'],
       datasets:[{ data: {{ role_counts.values() | list | tojson }},
-        backgroundColor:['#c80000','#FFCB47','#99c630','#4c4e54'],
+        backgroundColor:['#c80000','#FFCB47','#99c630','#4c4e54','#4c4e54'],
         borderWidth:0, hoverOffset:4
       }]
     },

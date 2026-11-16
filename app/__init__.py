@@ -93,7 +93,8 @@ def create_app(config_name=None):
 def register_cli(app):
     hospital_services = [
         ("G", "General OPD", "G", 10, ["lobby_officer"]),
-        ("S", "Specialist Consultation", "S", 15, ["lobby_officer", "loan_officer"]),
+        ("S", "Specialist Consultation", "S", 15,
+         ["lobby_officer", "loan_officer", "specialist_doctor"]),
         ("L", "Laboratory", "L", 8, ["loan_officer"]),
         ("R", "Radiology", "R", 12, ["loan_officer"]),
         ("P", "Pharmacy", "P", 6, ["lobby_officer", "loan_officer"]),

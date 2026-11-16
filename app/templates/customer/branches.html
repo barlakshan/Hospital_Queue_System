@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choose a hospital location — Melsta Hospitals</title>
+  <link href="{{ url_for('static', filename='css/pbqms.css') }}" rel="stylesheet">
+</head>
+<body style="background:#f4f4f5;padding:24px 16px;">
+<main class="pb-card" style="max-width:480px;margin:32px auto;">
+  <div class="pb-card-header">
+    <div class="pb-card-title">Patient appointment request</div>
+  </div>
+  <div class="pb-card-body">
+    {% if branches %}
+    <p>Select the hospital location where you would like to request an appointment.</p>
+    <div style="display:grid;gap:10px;">
+      {% for branch in branches %}
+      <a class="btn-pb-outline" href="{{ url_for('customer.register', branch_code=branch.code) }}">
+        {{ branch.name }}{% if branch.city %} · {{ branch.city }}{% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p>Online appointment requests are currently unavailable. Please contact the hospital directly.</p>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>

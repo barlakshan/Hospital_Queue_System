@@ -109,7 +109,10 @@ def token_status(token_id):
 
 @queue_bp.post("/call-next")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 @audit_action("call_next")
 def call_next():
     data       = request.get_json(force=True) or {}
@@ -144,7 +147,10 @@ def call_next():
 
 @queue_bp.post("/token/<int:token_id>/start")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 @audit_action("start_service")
 def start_service(token_id):
     token = QueueService.start_service(token_id, current_user)
@@ -153,7 +159,10 @@ def start_service(token_id):
 
 @queue_bp.post("/token/<int:token_id>/complete")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 @audit_action("complete_service")
 def complete_service(token_id):
     token = QueueService.complete_service(token_id, current_user)
@@ -162,7 +171,10 @@ def complete_service(token_id):
 
 @queue_bp.post("/token/<int:token_id>/no-show")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 @audit_action("mark_no_show")
 def mark_no_show(token_id):
     token = QueueService.mark_no_show(token_id)
@@ -171,7 +183,10 @@ def mark_no_show(token_id):
 
 @queue_bp.post("/token/<int:token_id>/priority")
 @login_required
-@require_role(UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER, UserRole.BRANCH_MANAGER)
+@require_role(
+    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
+)
 @audit_action("upgrade_priority")
 def upgrade_priority(token_id):
     data   = request.get_json(force=True) or {}

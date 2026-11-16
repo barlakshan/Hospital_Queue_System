@@ -55,7 +55,7 @@ class BaseConfig:
     TWILIO_SID                     = os.environ.get("TWILIO_SID", "")
     TWILIO_TOKEN                   = os.environ.get("TWILIO_TOKEN", "")
     TWILIO_FROM                    = os.environ.get("TWILIO_FROM", "")
-    BASE_URL                       = os.environ.get("BASE_URL", "http://localhost:5000")
+    BASE_URL                       = os.environ.get("BASE_URL", "")
     MAX_CONTENT_LENGTH             = 16 * 1024 * 1024
 
 

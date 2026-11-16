@@ -29,6 +29,7 @@ Priority categories are Emergency, Urgent referral, Elderly, Pregnant, Disabled,
 - **Department / Operations Manager** — review department queues, staffing, analytics, and location performance.
 - **Reception / OPD Staff** — manage the services assigned to the role.
 - **Department Staff** — manage the services assigned to the role.
+- **Specialist Doctor** — serve specialist consultation queues. An administrator creates the doctor’s account, entering the doctor’s name as the full name.
 
 The existing internal route and database identifiers (`branch`, `customer`, and legacy role names) remain for compatibility; the user-facing interface describes hospital locations, patients, and hospital staff roles.
 
@@ -103,7 +104,7 @@ Set a strong `SECRET_KEY`, production `DATABASE_URL`, Redis/Celery URLs, HTTPS, 
 - `REDIS_URL`, `CELERY_BROKER_URL` — background task infrastructure
 - `SMS_PROVIDER` — `mock`, `dialog`, `mobitel`, `textlk`, or `twilio`
 - Provider credentials and sender IDs — see `.env.example`
-- `BASE_URL` — public base URL embedded in QR registration pages
+- `BASE_URL` — public base URL embedded in QR registration pages; when unset, QR codes use the host from the page that generates them
 
 ## Patient journey
 

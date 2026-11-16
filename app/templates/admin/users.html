@@ -2,6 +2,20 @@
 {% block title %}Users — Admin Dashboard{% endblock %}
 
 {% block content %}
+{% set role_labels = {
+  'admin': 'System Administrator',
+  'branch_manager': 'Department / Operations Manager',
+  'lobby_officer': 'Reception / OPD Staff',
+  'loan_officer': 'Department Staff',
+  'specialist_doctor': 'Specialist Doctor'
+} %}
+{% set role_badge_classes = {
+  'admin': 'red',
+  'branch_manager': 'yellow',
+  'lobby_officer': 'green',
+  'loan_officer': 'dark',
+  'specialist_doctor': 'dark'
+} %}
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">User Management</div>
@@ -32,7 +46,11 @@
         <td><strong>{{ user.employee_id }}</strong></td>
         <td>{{ user.full_name }}</td>
         <td>{{ user.email }}</td>
-        <td><span class="badge">{{ user.role.value|replace('_', ' ')|title }}</span></td>
+        <td>
+          <span class="pb-badge {{ role_badge_classes.get(user.role.value, 'dark') }}">
+            {{ role_labels.get(user.role.value, user.role.value|replace('_', ' ')|title) }}
+          </span>
+        </td>
         <td>{{ user.branch.name if user.branch else '-' }}</td>
         <td style="text-align:right;">
           <a href="/admin/users/{{ user.id }}/edit" class="btn-pb-outline" style="padding:6px 10px;">Edit</a>

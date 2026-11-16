@@ -1,6 +1,15 @@
-from flask import render_template, redirect, url_for, abort
+from flask import render_template, redirect, url_for
 from app.views import customer_bp
 from app.models import Branch, ServiceType, QueueToken, TokenStatus
+
+
+@customer_bp.route("/register/")
+def register_index():
+    branches = (Branch.query.filter_by(is_active=True)
+                .order_by(Branch.name).all())
+    if len(branches) == 1:
+        return redirect(url_for("customer.register", branch_code=branches[0].code))
+    return render_template("customer/branches.html", branches=branches)
 
 
 @customer_bp.route("/register/<string:branch_code>")

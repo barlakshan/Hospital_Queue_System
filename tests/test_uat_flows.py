@@ -18,7 +18,7 @@ def client():
             ServiceType(code="G", name="General OPD", prefix="G", avg_service_min=10,
                         allowed_roles=["lobby_officer"]),
             ServiceType(code="S", name="Specialist Consultation", prefix="S", avg_service_min=15,
-                        allowed_roles=["lobby_officer", "loan_officer"]),
+                        allowed_roles=["lobby_officer", "loan_officer", "specialist_doctor"]),
             ServiceType(code="L", name="Laboratory", prefix="L", avg_service_min=8,
                         allowed_roles=["loan_officer"]),
             ServiceType(code="R", name="Radiology", prefix="R", avg_service_min=12,
@@ -124,6 +124,53 @@ def test_customer_registration_and_queue_lifecycle(client):
         assert SatisfactionRating.query.filter_by(token_id=token.id).count() == 1
 
 
+def test_registration_landing_and_qr_use_a_working_request_url(client):
+    client.application.config["BASE_URL"] = ""
+    with client.application.app_context():
+        branch = Branch(code="COL", name="Colombo", is_active=True)
+        db.session.add(branch)
+        db.session.commit()
+        branch_id = branch.id
+        service_id = ServiceType.query.filter_by(code="G").first().id
+
+    landing = client.get("/register/")
+    assert landing.status_code == 302
+    assert landing.headers["Location"].endswith("/register/COL")
+
+    form = client.get(landing.headers["Location"])
+    assert form.status_code == 200
+    assert b"Patient Queue Registration" in form.data
+
+    with client.application.test_request_context(
+        "/", base_url="http://127.0.0.1:5000"
+    ):
+        with client.application.app_context():
+            branch = Branch.query.filter_by(code="COL").one()
+            assert branch.qr_payload() == "http://127.0.0.1:5000/register/COL"
+            client.application.config["BASE_URL"] = "https://hospital.example/"
+            assert branch.qr_payload() == "https://hospital.example/register/COL"
+
+    with client.application.app_context():
+        db.session.add(Branch(code="GAL", name="Galle", is_active=True))
+        db.session.commit()
+    picker = client.get("/register/")
+    assert picker.status_code == 200
+    assert b"/register/COL" in picker.data
+    assert b"/register/GAL" in picker.data
+
+    registration = client.post(
+        "/api/queue/register",
+        json={
+            "branch_id": branch_id,
+            "full_name": "Nimal Perera",
+            "mobile": "0771234567",
+            "service_type_id": service_id,
+        },
+    )
+    assert registration.status_code == 201
+    assert registration.get_json()["token_id"]
+
+
 def test_admin_can_manage_branches_and_users(client):
     with client.application.app_context():
         admin = User(
@@ -156,6 +203,113 @@ def test_admin_can_manage_branches_and_users(client):
 
     users_response = client.get("/api/admin/users")
     assert users_response.status_code == 200
+
+
+def test_admin_user_list_displays_all_roles_with_visible_labels(client):
+    with client.application.app_context():
+        admin = User(
+            employee_id="ADM002",
+            full_name="Admin Two",
+            email="admin2@example.com",
+            role=UserRole.ADMIN,
+        )
+        admin.set_password("secret123")
+        db.session.add(admin)
+        for index, role in enumerate(UserRole):
+            user = User(
+                employee_id=f"USR{index:03}",
+                full_name=f"User {role.name}",
+                email=f"{role.name.lower()}@example.com",
+                role=role,
+            )
+            user.set_password("secret123")
+            db.session.add(user)
+        db.session.commit()
+
+    login_response = client.post(
+        "/api/auth/login",
+        json={"email": "admin2@example.com", "password": "secret123"},
+    )
+    assert login_response.status_code == 200
+
+    response = client.get("/admin/users")
+    assert response.status_code == 200
+    for role_label, badge_class in [
+        ("System Administrator", "red"),
+        ("Department / Operations Manager", "yellow"),
+        ("Reception / OPD Staff", "green"),
+        ("Department Staff", "dark"),
+        ("Specialist Doctor", "dark"),
+    ]:
+        assert role_label.encode() in response.data
+        assert f'class="pb-badge {badge_class}"'.encode() in response.data
+
+
+def test_admin_can_add_named_specialist_doctor_for_consultation_queue(client):
+    with client.application.app_context():
+        branch = Branch(code="COL", name="Colombo", is_active=True)
+        admin = User(
+            employee_id="ADM003",
+            full_name="Admin Three",
+            email="admin3@example.com",
+            role=UserRole.ADMIN,
+        )
+        admin.set_password("secret123")
+        db.session.add_all([branch, admin])
+        db.session.commit()
+        branch_id = branch.id
+        specialist_service_id = ServiceType.query.filter_by(code="S").one().id
+
+    client.post(
+        "/api/auth/login",
+        json={"email": "admin3@example.com", "password": "secret123"},
+    )
+    form_response = client.get("/admin/users/new")
+    assert b"Specialist Doctor" in form_response.data
+
+    create_response = client.post(
+        "/admin/users/new",
+        data={
+            "employee_id": "DOC001",
+            "full_name": "Dr. Asha Silva",
+            "email": "asha@example.com",
+            "password": "secret123",
+            "role": "SPECIALIST_DOCTOR",
+            "branch_id": str(branch_id),
+        },
+    )
+    assert create_response.status_code == 302
+
+    with client.application.app_context():
+        doctor = User.query.filter_by(email="asha@example.com").one()
+        assert doctor.full_name == "Dr. Asha Silva"
+        assert doctor.role == UserRole.SPECIALIST_DOCTOR
+        assert doctor.allowed_service_codes == ["S"]
+        counter = Counter(branch_id=branch_id, user_id=doctor.id, label="Consultation 1")
+        db.session.add(counter)
+        db.session.commit()
+        counter_id = counter.id
+
+    registration = client.post(
+        "/api/queue/register",
+        json={
+            "branch_id": branch_id,
+            "full_name": "Patient One",
+            "mobile": "0771234567",
+            "service_type_id": specialist_service_id,
+        },
+    )
+    assert registration.status_code == 201
+
+    doctor_login = client.post(
+        "/api/auth/login",
+        json={"email": "asha@example.com", "password": "secret123"},
+    )
+    assert doctor_login.status_code == 200
+    assert client.get("/officer/dashboard").status_code == 200
+    call_response = client.post("/api/queue/call-next", json={"counter_id": counter_id})
+    assert call_response.status_code == 200
+    assert call_response.get_json()["service"] == "Specialist Consultation"
 
 
 def test_manager_can_manage_officers_and_open_qr(client):

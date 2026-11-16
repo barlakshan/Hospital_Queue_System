@@ -20,11 +20,11 @@ class Branch(db.Model):
 
     def qr_payload(self) -> str:
         try:
-            from flask import current_app
-            base = current_app.config.get("BASE_URL", "http://localhost:5000")
+            from flask import current_app, request
+            base = current_app.config.get("BASE_URL") or request.url_root
         except RuntimeError:
             base = "http://localhost:5000"
-        return f"{base}/register/{self.code}"
+        return f"{base.rstrip('/')}/register/{self.code}"
 
     def __repr__(self):
         return f"<Branch {self.code}: {self.name}>"
