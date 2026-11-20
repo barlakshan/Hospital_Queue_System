@@ -12,21 +12,32 @@
 
 <div class="pb-card">
   <div class="pb-card-header">
-    <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Patient list</div>
+    <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Patient Management</div>
     <span class="pb-badge">{{ total }} total</span>
   </div>
   <div class="pb-card-body" style="padding:0;">
     <table class="pb-table">
-      <thead><tr><th>Name</th><th>Mobile</th><th>Visits</th></tr></thead>
+      <thead><tr><th>Name</th><th>Mobile</th><th>Visits</th><th>Brief condition summary</th></tr></thead>
       <tbody>
-        {% for customer in customers %}
+        {% for customer, visits in customers %}
         <tr>
           <td>{{ customer.full_name }}</td>
           <td style="color:#888;font-size:12px;">{{ customer.mobile }}</td>
-          <td><strong>{{ customer.visits }}</strong></td>
+          <td><strong>{{ visits }}</strong></td>
+          <td>
+            <form method="post" action="{{ url_for('manager_view.update_customer_summary', customer_id=customer.id) }}">
+              <label for="condition-summary-{{ customer.id }}">Condition summary for future treatment</label>
+              <textarea id="condition-summary-{{ customer.id }}" name="condition_summary"
+                        class="pb-form-control" rows="2" maxlength="500"
+                        placeholder="Relevant patient condition">{{ customer.condition_summary or '' }}</textarea>
+              <button type="submit" class="btn-pb-outline" style="margin-top:8px;">
+                Save summary
+              </button>
+            </form>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="3" class="text-center py-4" style="color:#aaa;">No patients found.</td></tr>
+        <tr><td colspan="4" class="text-center py-4" style="color:#aaa;">No patients found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

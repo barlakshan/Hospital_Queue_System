@@ -1,9 +1,30 @@
 from flask import request, jsonify
 from flask_login import login_required
 from app.api import admin_bp
-from app.models import Branch, User, UserRole, AuditLog, Counter, ServiceType
+from app.models import (
+    ASSIGNABLE_ROLES, Branch, User, UserRole, AuditLog, Counter, ServiceType,
+)
 from app.extensions import db
 from app.utils.decorators import require_role, audit_action
+
+
+def _service_assignments(values, role):
+    if not isinstance(values, list):
+        raise ValueError("service_ids must be an array.")
+    try:
+        service_ids = {int(value) for value in values}
+    except (TypeError, ValueError):
+        raise ValueError("service_ids must contain service IDs.")
+
+    services = ServiceType.query.filter(
+        ServiceType.id.in_(service_ids),
+        ServiceType.is_active.is_(True),
+    ).all() if service_ids else []
+    if len(services) != len(service_ids):
+        raise ValueError("Select only active services.")
+    if role != UserRole.ADMIN and not services:
+        raise ValueError("Assign at least one service to this user.")
+    return services
 
 
 @admin_bp.get("/branches")
@@ -94,6 +115,13 @@ def list_users():
         "email": u.email, "role": u.role.value,
         "branch_id": u.branch_id,
         "branch": u.branch.name if u.branch else None,
+        "services": [{
+            "id": service.id,
+            "name": service.name,
+            "code": service.code,
+        } for service in ServiceType.query.filter(
+            ServiceType.code.in_(u.allowed_service_codes)
+        ).order_by(ServiceType.name).all()],
         "last_login": u.last_login.isoformat() if u.last_login else None,
     } for u in users])
 
@@ -110,14 +138,21 @@ def create_user():
         return jsonify({"error": f"Missing: {', '.join(missing)}"}), 400
     if User.query.filter_by(email=data["email"]).first():
         return jsonify({"error": "Email already registered"}), 409
-    try:
-        role = UserRole[data["role"].upper()]
-    except KeyError:
+    role = next(
+        (role for role in ASSIGNABLE_ROLES if role.name == data["role"].upper()),
+        None,
+    )
+    if role is None:
         return jsonify({"error": f"Invalid role: {data['role']}"}), 400
+    try:
+        assigned_services = _service_assignments(data.get("service_ids", []), role)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
     u = User(
         employee_id=data["employee_id"], full_name=data["full_name"],
         email=data["email"].lower(), role=role,
         branch_id=data.get("branch_id"),
+        assigned_services=assigned_services,
     )
     u.set_password(data["password"])
     db.session.add(u)
@@ -136,7 +171,20 @@ def update_user(user_id):
         if f in data:
             setattr(user, f, data[f])
     if "role" in data:
-        user.role = UserRole[data["role"].upper()]
+        role = next(
+            (role for role in ASSIGNABLE_ROLES if role.name == data["role"].upper()),
+            None,
+        )
+        if role is None:
+            return jsonify({"error": f"Invalid role: {data['role']}"}), 400
+        user.role = role
+    if "service_ids" in data:
+        try:
+            user.assigned_services = _service_assignments(data["service_ids"], user.role)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+    elif user.role != UserRole.ADMIN and not user.assigned_services:
+        return jsonify({"error": "Assign at least one service to this user."}), 400
     if "password" in data and data["password"]:
         user.set_password(data["password"])
     db.session.commit()

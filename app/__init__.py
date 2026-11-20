@@ -92,13 +92,13 @@ def create_app(config_name=None):
 
 def register_cli(app):
     hospital_services = [
-        ("G", "General OPD", "G", 10, ["lobby_officer"]),
+        ("G", "General OPD", "G", 10, ["opd"]),
         ("S", "Specialist Consultation", "S", 15,
-         ["lobby_officer", "loan_officer", "specialist_doctor"]),
-        ("L", "Laboratory", "L", 8, ["loan_officer"]),
-        ("R", "Radiology", "R", 12, ["loan_officer"]),
-        ("P", "Pharmacy", "P", 6, ["lobby_officer", "loan_officer"]),
-        ("B", "Billing / Cashier", "B", 5, ["lobby_officer", "loan_officer"]),
+         ["opd", "dentist", "cardiologists", "dermatologists"]),
+        ("L", "Laboratory", "L", 8, ["pharmacy"]),
+        ("R", "Radiology", "R", 12, ["pharmacy"]),
+        ("P", "Pharmacy", "P", 6, ["pharmacy"]),
+        ("B", "Billing / Cashier", "B", 5, ["opd", "pharmacy"]),
     ]
 
     @app.cli.command("seed-db")
@@ -165,6 +165,42 @@ def register_cli(app):
         q.delete()
         db.session.commit()
         click.echo(f"Deleted {count} tokens for today.")
+
+    @app.cli.command("clean-data")
+    @click.option("--confirm", is_flag=True, help="Confirm permanent deletion of non-admin data.")
+    def clean_data(confirm):
+        """Delete all application data except Admin accounts; locations are removed too."""
+        if not confirm:
+            raise click.ClickException(
+                "This permanently deletes all non-admin data. Re-run with --confirm."
+            )
+
+        from app.models import (
+            AppointmentRequest, AuditLog, Branch, Counter, Customer,
+            QueueToken, SatisfactionRating, ServiceType, SmsLog, User, UserRole,
+        )
+
+        with app.app_context():
+            retained_admins = User.query.filter_by(role=UserRole.ADMIN).count()
+            for model in (
+                SatisfactionRating, SmsLog, AuditLog, AppointmentRequest,
+                QueueToken, Counter, Customer,
+            ):
+                db.session.query(model).delete(synchronize_session=False)
+
+            User.query.filter_by(role=UserRole.ADMIN).update(
+                {"branch_id": None}, synchronize_session=False
+            )
+            User.query.filter(User.role != UserRole.ADMIN).delete(
+                synchronize_session=False
+            )
+            db.session.query(ServiceType).delete(synchronize_session=False)
+            db.session.query(Branch).delete(synchronize_session=False)
+            db.session.commit()
+            click.echo(
+                f"Data cleaned. Kept {retained_admins} Admin account(s); "
+                "removed all other records, including locations and services."
+            )
 
     @app.cli.command("generate-qr")
     @click.option("--branch", default=None, help="Branch code")

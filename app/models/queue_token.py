@@ -33,6 +33,7 @@ class QueueToken(db.Model):
     is_priority        = db.Column(db.Boolean, default=False)
     priority_reason    = db.Column(db.Enum(PriorityReason), default=PriorityReason.NONE)
     estimated_wait_min = db.Column(db.Integer, default=0)
+    condition_summary  = db.Column(db.String(500), nullable=True)
     issued_at          = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     called_at          = db.Column(db.DateTime, nullable=True)
     served_at          = db.Column(db.DateTime, nullable=True)

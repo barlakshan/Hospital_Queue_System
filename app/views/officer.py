@@ -1,16 +1,20 @@
 from flask import render_template, redirect, url_for
 from flask_login import login_required, current_user
 from app.views import officer_bp
-from app.models import QueueToken, TokenStatus, Counter, UserRole, SatisfactionRating, ServiceType
+from app.models import (
+    DOCTOR_ROLES, AppointmentRequest, QueueToken, TokenStatus, Counter,
+    UserRole, SatisfactionRating, ServiceType,
+)
 from app.utils.decorators import require_role
 from app.extensions import db
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import date, datetime
 
 
 @officer_bp.route("/dashboard")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, *DOCTOR_ROLES,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )
@@ -19,9 +23,14 @@ def dashboard():
     branch_id  = current_user.branch_id
     counter    = Counter.query.filter_by(user_id=current_user.id, is_active=True).first()
 
-    # Build a dummy counter if none assigned
+    # Allow officers without an assigned counter to serve from the dashboard.
     if not counter:
-        counter = type("Counter", (), {"id": 0, "label": "Counter 1"})()
+        counter = type("Counter", (), {"id": None, "label": "Not assigned"})()
+
+    services = ServiceType.query.filter(
+        ServiceType.code.in_(current_user.allowed_service_codes)
+    ).order_by(ServiceType.name).all()
+    service_ids = [service.id for service in services]
 
     # My stats
     served_today = QueueToken.query.filter_by(
@@ -31,12 +40,12 @@ def dashboard():
 
     waiting = QueueToken.query.filter_by(
         branch_id=branch_id, status=TokenStatus.WAITING, queue_date=today,
-    ).count()
+    ).filter(QueueToken.service_type_id.in_(service_ids)).count()
 
     priority_waiting = QueueToken.query.filter_by(
         branch_id=branch_id, status=TokenStatus.WAITING,
         queue_date=today, is_priority=True,
-    ).count()
+    ).filter(QueueToken.service_type_id.in_(service_ids)).count()
 
     avg_rating_v = db.session.query(func.avg(SatisfactionRating.rating)).join(QueueToken).filter(
         QueueToken.branch_id == branch_id,
@@ -79,6 +88,26 @@ def dashboard():
               .order_by(QueueToken.completed_at.desc())
               .limit(8).all())
 
+    appointment_requests = []
+    if services or current_user.role in DOCTOR_ROLES:
+        request_filters = [
+            AppointmentRequest.requested_role == current_user.role.value,
+        ]
+        if current_user._legacy_service_role:
+            request_filters.append(
+                AppointmentRequest.requested_role == current_user._legacy_service_role
+            )
+        if service_ids:
+            request_filters.append(AppointmentRequest.service_type_id.in_(service_ids))
+        request_query = AppointmentRequest.query.filter(or_(*request_filters))
+        if branch_id is not None:
+            request_query = request_query.filter_by(branch_id=branch_id)
+        appointment_requests = (
+            request_query.order_by(AppointmentRequest.created_at.desc())
+            .limit(20)
+            .all()
+        )
+
     stats = {
         "served_today": served_today, "served_delta": 3,
         "waiting": waiting, "priority_waiting": priority_waiting,
@@ -88,6 +117,8 @@ def dashboard():
     return render_template("officer/dashboard.html",
         counter=counter, branch=current_user.branch,
         stats=stats, recent_tokens=recent,
+        appointment_requests=appointment_requests,
+        appointment_services=services,
         hourly_labels=hourly_labels, hourly_data=hourly_data, peak_hour=peak_hour,
     )
 
@@ -95,6 +126,7 @@ def dashboard():
 @officer_bp.route("/queue")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, *DOCTOR_ROLES,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )
@@ -119,6 +151,7 @@ def queue():
 @officer_bp.route("/history")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, *DOCTOR_ROLES,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )

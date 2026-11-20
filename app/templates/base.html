@@ -32,7 +32,7 @@
       <i class="ti ti-building" style="font-size:11px;margin-right:3px"></i>
       {{ current_user.branch.name if current_user.branch else 'All Locations' }}
     </div>
-    <div class="pb-navbar-chip" id="connection-status">
+    <div class="pb-navbar-chip" id="navbar-connection-status">
       <span class="pb-online-dot"></span> Online
     </div>
     <div class="pb-navbar-user">
@@ -41,6 +41,11 @@
         <div>{{ current_user.full_name }}</div>
         <div style="font-size:9px;opacity:.6;">{{ {
           'admin': 'System Administrator',
+          'opd': 'OPD',
+          'pharmacy': 'Pharmacy',
+          'dentist': 'Dentist',
+          'cardiologists': 'Cardiologists',
+          'dermatologists': 'Dermatologists',
           'branch_manager': 'Department / Operations Manager',
           'lobby_officer': 'Reception / OPD Staff',
           'loan_officer': 'Department Staff',
@@ -55,10 +60,10 @@
 <aside class="pb-sidebar">
   <div class="pb-sidebar-section">Main</div>
 
-  {% if current_user.role.value in ['lobby_officer','loan_officer','specialist_doctor'] %}
+  {% if current_user.role.value in ['opd','pharmacy','dentist','cardiologists','dermatologists','lobby_officer','loan_officer','specialist_doctor'] %}
     <a href="/officer/dashboard" class="pb-sidebar-link {% if request.path == '/officer/dashboard' %}active{% endif %}">
       <i class="ti ti-layout-dashboard"></i> Staff Dashboard
-      <span class="pb-sidebar-badge" id="waiting-count">—</span>
+      <span class="pb-sidebar-badge" id="sidebar-waiting-count">—</span>
     </a>
     <a href="/officer/queue" class="pb-sidebar-link {% if '/queue' in request.path %}active{% endif %}">
       <i class="ti ti-list-numbers"></i> Department Queue
@@ -95,6 +100,9 @@
     </a>
     <a href="/admin/users" class="pb-sidebar-link">
       <i class="ti ti-users"></i> Users
+    </a>
+    <a href="/admin/dashboard#appointment-requests" class="pb-sidebar-link">
+      <i class="ti ti-calendar-event"></i> Appointment requests
     </a>
     <a href="{{ url_for('admin_view.services') }}" class="pb-sidebar-link">
       <i class="ti ti-stethoscope"></i> Departments &amp; Services

@@ -6,10 +6,45 @@ import enum
 
 class UserRole(enum.Enum):
     ADMIN          = "admin"
+    OPD            = "opd"
+    PHARMACY       = "pharmacy"
+    DENTIST        = "dentist"
+    CARDIOLOGISTS  = "cardiologists"
+    DERMATOLOGISTS = "dermatologists"
+
+    # Kept for existing databases and routes; new accounts use the roles above.
     BRANCH_MANAGER = "branch_manager"
     LOBBY_OFFICER  = "lobby_officer"
     LOAN_OFFICER   = "loan_officer"
     SPECIALIST_DOCTOR = "specialist_doctor"
+
+
+ASSIGNABLE_ROLES = (
+    UserRole.ADMIN,
+    UserRole.OPD,
+    UserRole.PHARMACY,
+    UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS,
+    UserRole.DERMATOLOGISTS,
+)
+DOCTOR_ROLES = (
+    UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS,
+    UserRole.DERMATOLOGISTS,
+)
+SERVICE_ROLES = ASSIGNABLE_ROLES[1:]
+
+user_services = db.Table(
+    "user_services",
+    db.Column("user_id", db.Integer, db.ForeignKey("users.id"), primary_key=True),
+    db.Column(
+        "service_type_id",
+        db.Integer,
+        db.ForeignKey("service_types.id"),
+        primary_key=True,
+    ),
+)
+
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
@@ -24,6 +59,11 @@ class User(UserMixin, db.Model):
     last_login    = db.Column(db.DateTime)
     created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     branch        = db.relationship("Branch", back_populates="users")
+    assigned_services = db.relationship(
+        "ServiceType",
+        secondary=user_services,
+        back_populates="assigned_users",
+    )
     tokens_served = db.relationship("QueueToken", back_populates="served_by_officer",
                                     foreign_keys="QueueToken.served_by", lazy="dynamic")
     audit_logs    = db.relationship("AuditLog", back_populates="user", lazy="dynamic")
@@ -38,10 +78,26 @@ class User(UserMixin, db.Model):
     def allowed_service_codes(self):
         if self.role in (UserRole.ADMIN, UserRole.BRANCH_MANAGER):
             return [service.code for service in self._active_services()]
+        if self.assigned_services:
+            return [
+                service.code for service in self.assigned_services
+                if service.is_active
+            ]
         return [
             service.code for service in self._active_services()
             if self.role.value in (service.allowed_roles or [])
+            or self._legacy_service_role in (service.allowed_roles or [])
         ]
+
+    @property
+    def _legacy_service_role(self):
+        return {
+            UserRole.OPD: UserRole.LOBBY_OFFICER.value,
+            UserRole.PHARMACY: UserRole.LOAN_OFFICER.value,
+            UserRole.DENTIST: UserRole.SPECIALIST_DOCTOR.value,
+            UserRole.CARDIOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
+            UserRole.DERMATOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
+        }.get(self.role)
 
     @staticmethod
     def _active_services():

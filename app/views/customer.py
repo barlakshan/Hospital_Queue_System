@@ -20,6 +20,26 @@ def register(branch_code):
                             branch=branch, services=services)
 
 
+@customer_bp.route("/appointments/")
+def appointment_branches():
+    branches = (Branch.query.filter_by(is_active=True)
+                .order_by(Branch.name).all())
+    if len(branches) == 1:
+        return redirect(url_for("customer.appointment_request", branch_code=branches[0].code))
+    return render_template("customer/appointment_branches.html", branches=branches)
+
+
+@customer_bp.route("/appointments/<string:branch_code>")
+def appointment_request(branch_code):
+    branch = Branch.query.filter_by(code=branch_code.upper(), is_active=True).first_or_404()
+    services = ServiceType.query.filter_by(is_active=True).order_by(ServiceType.name).all()
+    return render_template(
+        "customer/appointment_request.html",
+        branch=branch,
+        services=services,
+    )
+
+
 @customer_bp.route("/register/token/<int:token_id>")
 def token_page(token_id):
     token = QueueToken.query.get_or_404(token_id)

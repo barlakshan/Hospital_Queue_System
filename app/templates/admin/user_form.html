@@ -5,7 +5,7 @@
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">{{ 'Edit User' if user else 'New User' }}</div>
-    <div class="pb-page-sub">Manage staff accounts, roles, and hospital location assignments</div>
+    <div class="pb-page-sub">Manage staff accounts, roles, services, and hospital locations</div>
   </div>
   <a href="/admin/users" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
@@ -39,11 +39,12 @@
             <option value="">Select role</option>
             {% for role in roles %}
             <option value="{{ role.name }}" {% if user and user.role == role %}selected{% endif %}>{{ {
-              'ADMIN': 'System Administrator',
-              'BRANCH_MANAGER': 'Department / Operations Manager',
-              'LOBBY_OFFICER': 'Reception / OPD Staff',
-              'LOAN_OFFICER': 'Department Staff',
-              'SPECIALIST_DOCTOR': 'Specialist Doctor'
+              'ADMIN': 'Admin',
+              'OPD': 'OPD',
+              'PHARMACY': 'Pharmacy',
+              'DENTIST': 'Dentist',
+              'CARDIOLOGISTS': 'Cardiologists',
+              'DERMATOLOGISTS': 'Dermatologists'
             }.get(role.name, role.value.replace('_',' ').title()) }}</option>
             {% endfor %}
           </select>
@@ -56,6 +57,22 @@
             <option value="{{ branch.id }}" {% if user and user.branch_id == branch.id %}selected{% endif %}>{{ branch.name }}</option>
             {% endfor %}
           </select>
+        </div>
+      </div>
+      <div class="pb-form-group">
+        <div class="pb-form-label">Services this user can handle</div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
+          Select one or more services. New services are available here automatically. Admin users already have access to all services.
+        </div>
+        <div class="d-flex flex-wrap gap-3">
+          {% for service in services %}
+          <label class="form-check-label">
+            <input class="form-check-input me-1" type="checkbox" name="service_ids" value="{{ service.id }}" {% if service.id in selected_service_ids %}checked{% endif %}>
+            {{ service.name }}
+          </label>
+          {% else %}
+          <span class="text-muted">No active services available.</span>
+          {% endfor %}
         </div>
       </div>
       {% if user %}

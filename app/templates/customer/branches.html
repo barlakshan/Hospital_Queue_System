@@ -16,9 +16,14 @@
     <p>Select the hospital location where you would like to request an appointment.</p>
     <div style="display:grid;gap:10px;">
       {% for branch in branches %}
-      <a class="btn-pb-outline" href="{{ url_for('customer.register', branch_code=branch.code) }}">
-        {{ branch.name }}{% if branch.city %} · {{ branch.city }}{% endif %}
-      </a>
+      <div style="display:grid;gap:6px;">
+        <a class="btn-pb-outline" href="{{ url_for('customer.register', branch_code=branch.code) }}">
+          Join the patient queue — {{ branch.name }}{% if branch.city %} · {{ branch.city }}{% endif %}
+        </a>
+        <a class="btn-pb-outline" href="{{ url_for('customer.appointment_request', branch_code=branch.code) }}">
+          Request a doctor appointment
+        </a>
+      </div>
       {% endfor %}
     </div>
     {% else %}

@@ -19,19 +19,19 @@ The queue stores only patient name and mobile number for identification; it is n
 | Pharmacy | P | 6 min | Reception / OPD staff, department staff |
 | Billing / Cashier | B | 5 min | Reception / OPD staff, department staff |
 
-System administrators can adjust service names, token prefixes, average service times, active status, and staff access at **Departments & Services**. Estimates are based on the number of people ahead multiplied by the configured average; tune these values using actual queue data.
+System administrators add services at **Departments & Services**. Queue codes, token prefixes, and wait-time defaults are managed by the system. Active services appear automatically on patient ticket and appointment forms and can be assigned to staff in **User Management**.
 
 Priority categories are Emergency, Urgent referral, Elderly, Pregnant, Disabled, and Child. Priority patients are called before regular patients, with FIFO order within each group. Patients experiencing a medical emergency must alert hospital staff immediately rather than wait for a queue token.
 
 ## Roles
 
-- **System Administrator** — manage locations, users, departments/services, QR codes, audit logs, and analytics.
-- **Department / Operations Manager** — review department queues, staffing, analytics, and location performance.
-- **Reception / OPD Staff** — manage the services assigned to the role.
-- **Department Staff** — manage the services assigned to the role.
-- **Specialist Doctor** — serve specialist consultation queues. An administrator creates the doctor’s account, entering the doctor’s name as the full name.
+- **Admin** — manage locations, users, departments/services, QR codes, audit logs, and analytics.
+- **OPD** and **Pharmacy** — work the services assigned to each role.
+- **Dentist**, **Cardiologists**, and **Dermatologists** — work their assigned service queues and see appointment requests for those services.
 
 The existing internal route and database identifiers (`branch`, `customer`, and legacy role names) remain for compatibility; the user-facing interface describes hospital locations, patients, and hospital staff roles.
+
+Admins create staff accounts with one of the six roles above. Patient appointment requests are listed on the Admin dashboard and only on staff dashboards assigned to the selected service, scoped to the staff member's location when assigned.
 
 ## Architecture
 
@@ -67,6 +67,8 @@ The public waiting-area display shows tokens, service names, and counters only; 
    flask seed-db
    flask create-admin
    ```
+
+   To deliberately remove all records except Admin accounts (including hospital locations and services), run `flask clean-data --confirm`. This command is never run automatically. Re-create locations and run `flask seed-db` afterward.
 
    For an existing database created by the original app without an Alembic version, stamp its existing initial schema once before applying the hospital migration:
 
@@ -115,6 +117,8 @@ Set a strong `SECRET_KEY`, production `DATABASE_URL`, Redis/Celery URLs, HTTPS, 
 5. Staff start and complete the service; the system records queue and service timing.
 6. Submit a service rating from the patient status page.
 
+Patients can also open `/appointments/` to request an appointment for an active department or service. Requests are pending and visible to Admin plus staff assigned to the selected service.
+
 ## Staff workflow
 
 1. Sign in to the role-specific console.
@@ -125,6 +129,7 @@ Set a strong `SECRET_KEY`, production `DATABASE_URL`, Redis/Celery URLs, HTTPS, 
 
 - `POST /api/auth/login`
 - `POST /api/queue/register`
+- `POST /api/queue/appointments`
 - `GET /api/queue/token/<id>/status`
 - `POST /api/queue/call-next`
 - `POST /api/queue/token/<id>/start`

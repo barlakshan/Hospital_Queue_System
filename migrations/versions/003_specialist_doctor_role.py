@@ -1,7 +1,5 @@
 """Add the specialist doctor role."""
 
-import json
-
 from alembic import op
 import sqlalchemy as sa
 
@@ -35,6 +33,7 @@ def _update_specialist_service_role(add_role):
     if roles is None:
         return
     if isinstance(roles, str):
+        import json
         roles = json.loads(roles)
 
     if add_role and "specialist_doctor" not in roles:

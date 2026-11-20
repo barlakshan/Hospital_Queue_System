@@ -10,3 +10,8 @@ class ServiceType(db.Model):
     is_active       = db.Column(db.Boolean, default=True)
     allowed_roles   = db.Column(db.JSON, nullable=False, default=list)
     tokens = db.relationship("QueueToken", back_populates="service_type", lazy="dynamic")
+    assigned_users = db.relationship(
+        "User",
+        secondary="user_services",
+        back_populates="assigned_services",
+    )

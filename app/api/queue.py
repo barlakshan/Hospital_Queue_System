@@ -3,10 +3,97 @@ from flask_login import login_required, current_user
 from app.api import queue_bp
 from app.services.queue_service import QueueService
 from app.models import (PriorityReason, SatisfactionRating, QueueToken,
-                          TokenStatus, UserRole, ServiceType, Branch, Counter)
+                          TokenStatus, UserRole, ServiceType, Branch, Counter,
+                          AppointmentRequest, DOCTOR_ROLES)
 from app.extensions import db
 from app.utils.decorators import require_role, audit_action
 from datetime import date
+from sqlalchemy.exc import SQLAlchemyError
+
+
+@queue_bp.post("/appointments")
+def request_appointment():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "A JSON object is required"}), 400
+    required = ("branch_id", "full_name", "mobile")
+    missing = [field for field in required if not data.get(field)]
+    if not data.get("service_type_id") and not data.get("requested_role"):
+        missing.append("service_type_id")
+    if missing:
+        return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
+    try:
+        branch_id = int(data["branch_id"])
+    except (ValueError, TypeError):
+        return jsonify({"error": "branch_id must be an integer"}), 400
+
+    branch = Branch.query.filter_by(id=branch_id, is_active=True).first()
+    if not branch:
+        return jsonify({"error": "Select an active hospital location"}), 400
+
+    requested_role = None
+    service = None
+    if data.get("service_type_id"):
+        try:
+            service_type_id = int(data["service_type_id"])
+        except (ValueError, TypeError):
+            return jsonify({"error": "service_type_id must be an integer"}), 400
+        service = ServiceType.query.filter_by(
+            id=service_type_id, is_active=True
+        ).first()
+        if not service:
+            return jsonify({"error": "Select an active department or service"}), 400
+    else:
+        requested_role = next(
+            (role for role in DOCTOR_ROLES
+             if role.value == str(data["requested_role"]).lower()),
+            None,
+        )
+        if requested_role is None:
+            return jsonify({"error": "Select a valid doctor specialty"}), 400
+        legacy_role = {
+            UserRole.DENTIST: UserRole.SPECIALIST_DOCTOR.value,
+            UserRole.CARDIOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
+            UserRole.DERMATOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
+        }.get(requested_role)
+        service = next(
+            (candidate for candidate in ServiceType.query.filter_by(is_active=True).all()
+             if requested_role.value in (candidate.allowed_roles or [])
+             or legacy_role in (candidate.allowed_roles or [])),
+            None,
+        )
+        if not service:
+            return jsonify({"error": "No active service is configured for this specialty"}), 400
+
+    full_name = str(data["full_name"]).strip()
+    mobile = str(data["mobile"]).strip()
+    if len(full_name) < 2:
+        return jsonify({"error": "Full name is required (min 2 characters)"}), 400
+    if len(mobile) < 9:
+        return jsonify({"error": "Valid mobile number is required"}), 400
+
+    appointment_request = AppointmentRequest(
+        branch=branch,
+        full_name=full_name,
+        mobile=mobile,
+        service_type=service,
+        requested_role=requested_role.value if requested_role else None,
+    )
+    db.session.add(appointment_request)
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        raise
+
+    return jsonify({
+        "request_id": appointment_request.id,
+        "status": "pending",
+        "service_type_id": service.id,
+        "service": service.name,
+        "branch": branch.name,
+    }), 201
 
 
 @queue_bp.get("/branch/<string:branch_code>/info")
@@ -110,6 +197,8 @@ def token_status(token_id):
 @queue_bp.post("/call-next")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS, UserRole.DERMATOLOGISTS,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )
@@ -119,7 +208,7 @@ def call_next():
     counter_id = data.get("counter_id")
     
     # Validate counter_id if provided
-    if counter_id:
+    if counter_id is not None:
         try:
             counter_id = int(counter_id)
             counter = Counter.query.get(counter_id)
@@ -148,6 +237,8 @@ def call_next():
 @queue_bp.post("/token/<int:token_id>/start")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS, UserRole.DERMATOLOGISTS,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )
@@ -160,11 +251,27 @@ def start_service(token_id):
 @queue_bp.post("/token/<int:token_id>/complete")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS, UserRole.DERMATOLOGISTS,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )
 @audit_action("complete_service")
 def complete_service(token_id):
+    payload = request.get_json(silent=True) or {}
+    condition_summary = payload.get("condition_summary")
+    if condition_summary is not None:
+        condition_summary = condition_summary.strip()
+        if len(condition_summary) > 500:
+            return jsonify({"error": "Condition summary must be 500 characters or fewer."}), 400
+        if condition_summary:
+            setattr(current_user, "_complete_condition_summary", condition_summary)
+        else:
+            if hasattr(current_user, "_complete_condition_summary"):
+                delattr(current_user, "_complete_condition_summary")
+    else:
+        if hasattr(current_user, "_complete_condition_summary"):
+            delattr(current_user, "_complete_condition_summary")
     token = QueueService.complete_service(token_id, current_user)
     return jsonify({"message": "Service completed", "token": token.token_number})
 
@@ -172,6 +279,8 @@ def complete_service(token_id):
 @queue_bp.post("/token/<int:token_id>/no-show")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS, UserRole.DERMATOLOGISTS,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )
@@ -184,6 +293,8 @@ def mark_no_show(token_id):
 @queue_bp.post("/token/<int:token_id>/priority")
 @login_required
 @require_role(
+    UserRole.OPD, UserRole.PHARMACY, UserRole.DENTIST,
+    UserRole.CARDIOLOGISTS, UserRole.DERMATOLOGISTS,
     UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
     UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
 )

@@ -1,9 +1,9 @@
-from flask import render_template, request, redirect, url_for, flash
+from flask import abort, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from app.views import manager_view_bp, admin_view_bp
 from app.models import (QueueToken, TokenStatus, User, UserRole, Counter,
                          ServiceType, SatisfactionRating, Branch, Customer)
-from app.utils.decorators import require_role
+from app.utils.decorators import audit_action, require_role
 from app.extensions import db
 from sqlalchemy import func
 from datetime import date, timedelta
@@ -102,8 +102,8 @@ def officers():
             flash("Email already registered.", "danger")
             return redirect(url_for("manager_view.officers"))
 
-        if role_value not in {"LOBBY_OFFICER", "LOAN_OFFICER"}:
-            flash("Managers can only add reception or department staff.", "danger")
+        if role_value not in {"OPD", "PHARMACY"}:
+            flash("Managers can only add OPD or Pharmacy staff.", "danger")
             return redirect(url_for("manager_view.officers"))
 
         try:
@@ -129,7 +129,7 @@ def officers():
     if branch:
         officers = (
             User.query.filter_by(branch_id=branch.id, is_active=True)
-            .filter(User.role.in_([UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER]))
+            .filter(User.role.in_([UserRole.OPD, UserRole.PHARMACY]))
             .order_by(User.full_name)
             .all()
         )
@@ -138,7 +138,7 @@ def officers():
         "manager/officers.html",
         branch=branch,
         officers=officers,
-        allowed_roles=[UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER],
+        allowed_roles=[UserRole.OPD, UserRole.PHARMACY],
     )
 
 
@@ -221,6 +221,28 @@ def customers():
     )
 
 
+@manager_view_bp.route("/customers/<int:customer_id>/summary", methods=["POST"])
+@login_required
+@require_role(UserRole.BRANCH_MANAGER)
+@audit_action("update_customer_summary")
+def update_customer_summary(customer_id):
+    customer = Customer.query.get_or_404(customer_id)
+    if not QueueToken.query.filter_by(
+        customer_id=customer.id, branch_id=current_user.branch_id
+    ).first():
+        abort(404)
+
+    condition_summary = request.form.get("condition_summary", "").strip()
+    if len(condition_summary) > 500:
+        flash("Condition summary must be 500 characters or fewer.", "danger")
+        return redirect(url_for("manager_view.customers"))
+
+    customer.condition_summary = condition_summary or None
+    db.session.commit()
+    flash("Patient condition summary updated.", "success")
+    return redirect(url_for("manager_view.customers"))
+
+
 @manager_view_bp.route("/queue/other")
 @manager_view_bp.route("/queue/departments")
 @login_required
@@ -243,7 +265,6 @@ def other_queue():
 @manager_view_bp.route("/qr")
 @manager_view_bp.route("/qr/")
 @login_required
-@require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN, UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER)
 def branch_qr():
     branch = current_user.branch
     if not branch and current_user.role == UserRole.ADMIN:

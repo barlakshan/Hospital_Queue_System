@@ -5,7 +5,7 @@
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">Staff Dashboard</div>
-    <div class="pb-page-sub">Counter {{ counter.label }} &nbsp;·&nbsp; {{ branch.name }}</div>
+    <div class="pb-page-sub">Counter {{ counter.label }} &nbsp;·&nbsp; {{ branch.name if branch else 'All locations' }}</div>
   </div>
   <div style="display:flex;gap:8px;">
     <button class="btn-pb-primary" id="btn-call-next">
@@ -16,6 +16,36 @@
     </span>
   </div>
 </div>
+
+{% if appointment_services %}
+<div class="pb-card" style="margin:16px 0;">
+  <div class="pb-card-header">
+    <div>
+      <div class="pb-card-title"><i class="ti ti-calendar-event" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Appointment requests</div>
+      <div class="text-muted" style="font-size:11px;margin-top:3px;">{{ appointment_services | map(attribute='name') | join(', ') }}</div>
+    </div>
+  </div>
+  <div class="pb-card-body" style="padding:0;">
+    <table class="pb-table">
+      <thead><tr><th>Patient</th><th>Mobile</th><th>Department / service</th><th>Location</th><th>Requested</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for appointment in appointment_requests %}
+        <tr>
+          <td><strong>{{ appointment.full_name }}</strong></td>
+          <td>{{ appointment.mobile }}</td>
+          <td>{{ appointment.service_type.name if appointment.service_type else appointment.requested_role.replace('_', ' ')|title }}</td>
+          <td>{{ appointment.branch.name }}</td>
+          <td>{{ appointment.created_at.strftime('%d %b %Y %H:%M') }}</td>
+          <td><span class="pb-badge yellow">Pending</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#888;">No appointment requests for your assigned services.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <!-- Stats -->
 <div class="pb-stat-grid">
@@ -119,10 +149,9 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='js/officer-console.js') }}"></script>
 <script>
   // Init officer console
-  OfficerConsole.init({{ counter.id }}, {{ branch.id }});
+  OfficerConsole.init({{ counter.id | tojson }}, {{ (branch.id if branch else none) | tojson }});
 
   // Hourly chart
   const ctx = document.getElementById('hourly-chart').getContext('2d');

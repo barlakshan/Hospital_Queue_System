@@ -7,7 +7,12 @@
     <div class="pb-page-title">Patient Management</div>
     <div class="pb-page-sub">Review registered patients and their queue visits</div>
   </div>
-  <a href="/admin/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
+  <div>
+    <a href="{{ url_for('admin_view.export_customers') }}" class="btn-pb-outline">
+      <i class="ti ti-file-spreadsheet"></i> Export Excel
+    </a>
+    <a href="/admin/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
+  </div>
 </div>
 
 <div class="pb-card">
@@ -19,7 +24,7 @@
       <tr>
         <th>Full Name</th>
         <th>Mobile</th>
-        <th>NIC/Passport</th>
+        <th>Patient Summary</th>
         <th>Registered</th>
         <th>Status</th>
       </tr>
@@ -29,8 +34,14 @@
       <tr>
         <td><strong>{{ customer.full_name }}</strong></td>
         <td>{{ customer.mobile }}</td>
-        <td>{{ customer.nic_passport or '-' }}</td>
-        <td>{{ customer.created_at.strftime('%Y-%m-%d') }}</td>
+        <td>
+          {% if customer.condition_summary %}
+            {{ customer.condition_summary }}
+          {% else %}
+            <span style="color:#888;">No summary recorded</span>
+          {% endif %}
+        </td>
+        <td>{{ customer.created_at.strftime('%Y-%m-%d') if customer.created_at else '-' }}</td>
         <td><span class="badge" style="background:#10b981;">Active</span></td>
       </tr>
       {% endfor %}

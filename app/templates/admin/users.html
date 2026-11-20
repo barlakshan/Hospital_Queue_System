@@ -3,7 +3,12 @@
 
 {% block content %}
 {% set role_labels = {
-  'admin': 'System Administrator',
+  'admin': 'Admin',
+  'opd': 'OPD',
+  'pharmacy': 'Pharmacy',
+  'dentist': 'Dentist',
+  'cardiologists': 'Cardiologists',
+  'dermatologists': 'Dermatologists',
   'branch_manager': 'Department / Operations Manager',
   'lobby_officer': 'Reception / OPD Staff',
   'loan_officer': 'Department Staff',
@@ -11,6 +16,11 @@
 } %}
 {% set role_badge_classes = {
   'admin': 'red',
+  'opd': 'green',
+  'pharmacy': 'yellow',
+  'dentist': 'dark',
+  'cardiologists': 'dark',
+  'dermatologists': 'dark',
   'branch_manager': 'yellow',
   'lobby_officer': 'green',
   'loan_officer': 'dark',
@@ -36,6 +46,7 @@
         <th>Name</th>
         <th>Email</th>
         <th>Role</th>
+        <th>Services</th>
         <th>Branch</th>
         <th>Actions</th>
       </tr>
@@ -50,6 +61,15 @@
           <span class="pb-badge {{ role_badge_classes.get(user.role.value, 'dark') }}">
             {{ role_labels.get(user.role.value, user.role.value|replace('_', ' ')|title) }}
           </span>
+        </td>
+        <td>
+          {% if user.role.value in ['admin', 'branch_manager'] %}
+            All services
+          {% elif user.assigned_services %}
+            {{ user.assigned_services | map(attribute='name') | join(', ') }}
+          {% else %}
+            {{ user.allowed_service_codes | join(', ') or 'None assigned' }}
+          {% endif %}
         </td>
         <td>{{ user.branch.name if user.branch else '-' }}</td>
         <td style="text-align:right;">

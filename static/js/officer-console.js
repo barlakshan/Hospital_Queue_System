@@ -18,6 +18,11 @@ const OfficerConsole = (() => {
 
   /* ── Socket.IO ── */
   function connectSocket(branchId) {
+    if (typeof io !== 'function') {
+      setStatus('disconnected');
+      return;
+    }
+
     socket = io({ transports: ['websocket', 'polling'] });
 
     socket.on('connect', () => {
@@ -50,17 +55,19 @@ const OfficerConsole = (() => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ counter_id: currentCounterId }),
     })
-    .then(r => {
+    .then(async r => {
       if (r.status === 204) {
         showToast('No patients waiting', 'info');
         return null;
       }
-      return r.json();
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to call the next patient');
+      return data;
     })
     .then(data => {
       if (data) renderServing(data);
     })
-    .catch(() => showToast('Network error — try again', 'error'))
+    .catch(error => showToast(error.message || 'Network error — try again', 'error'))
     .finally(() => {
       btn.disabled = false;
       btn.innerHTML = '<i class="ti ti-phone-call"></i> Call next';
@@ -69,24 +76,39 @@ const OfficerConsole = (() => {
 
   /* ── Complete service ── */
   function completeService(tokenId) {
-    fetch(`/api/queue/token/${tokenId}/complete`, { method: 'POST' })
+    const summaryInput = document.getElementById(`condition-summary-${tokenId}`);
+    const conditionSummary = summaryInput ? summaryInput.value.trim() : '';
+    if (!conditionSummary) {
+      showToast('Enter a brief condition summary before completing the appointment', 'warning');
+      if (summaryInput) summaryInput.focus();
+      return;
+    }
+    fetch(`/api/queue/token/${tokenId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ condition_summary: conditionSummary }),
+    })
     .then(r => r.json())
-    .then(() => {
+    .then(data => {
+      if (!data || !data.message) throw new Error(data?.error || 'Unable to complete service');
       showToast('Service completed', 'success');
       clearServing();
       refreshQueue();
-    });
+    })
+    .catch(error => showToast(error.message || 'Network error — try again', 'error'));
   }
 
   /* ── Mark no-show ── */
   function markNoShow(tokenId) {
     fetch(`/api/queue/token/${tokenId}/no-show`, { method: 'POST' })
     .then(r => r.json())
-    .then(() => {
+    .then(data => {
+      if (!data || !data.message) throw new Error(data?.error || 'Unable to mark no-show');
       showToast('Marked as no-show', 'warning');
       clearServing();
       refreshQueue();
-    });
+    })
+    .catch(error => showToast(error.message || 'Network error — try again', 'error'));
   }
 
   /* ── Priority upgrade ── */
@@ -137,6 +159,14 @@ const OfficerConsole = (() => {
           </div>` : ''}
         </div>
       </div>
+      <div class="mb-3">
+        <label for="condition-summary-${data.token_id}" class="pb-form-label">
+          Brief condition summary
+        </label>
+        <textarea id="condition-summary-${data.token_id}"
+                  class="pb-form-control" rows="3" maxlength="500"
+                  placeholder="Record the patient's condition before completing the appointment"></textarea>
+      </div>
       <button class="btn-pb-success w-100 mb-2" onclick="OfficerConsole.completeService(${data.token_id})">
         <i class="ti ti-check"></i> Mark complete
       </button>
@@ -167,6 +197,7 @@ const OfficerConsole = (() => {
   function renderQueue(tokens) {
     const el = document.getElementById('queue-list');
     if (!el) return;
+    updateWaitingCount(tokens.length);
 
     if (!tokens.length) {
       el.innerHTML = `<div class="text-center py-4 text-muted">
@@ -199,21 +230,24 @@ const OfficerConsole = (() => {
   function updateWaitingCount(count) {
     const el = document.getElementById('waiting-count');
     if (el) el.textContent = count;
-    // Update sidebar badge
-    const badge = document.querySelector('.pb-sidebar-badge');
+    const badge = document.getElementById('sidebar-waiting-count');
     if (badge) badge.textContent = count;
+    const queueCount = document.getElementById('queue-count');
+    if (queueCount) queueCount.textContent = count;
   }
 
   /* ── UI helpers ── */
   function setStatus(status) {
-    const el = document.getElementById('connection-status');
-    if (!el) return;
     const map = {
       connected:    { text: 'Online',        cls: 'green' },
       disconnected: { text: 'Reconnecting…', cls: 'red'  },
     };
     const s = map[status];
-    el.innerHTML = `<span class="pb-online-dot" style="background:${s.cls === 'red' ? 'var(--pb-red)' : 'var(--pb-green)'}"></span> ${s.text}`;
+    const markup = `<span class="pb-online-dot" style="background:${s.cls === 'red' ? 'var(--pb-red)' : 'var(--pb-green)'}"></span> ${s.text}`;
+    ['navbar-connection-status', 'connection-status'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = markup;
+    });
   }
 
   function showToast(message, type = 'info') {

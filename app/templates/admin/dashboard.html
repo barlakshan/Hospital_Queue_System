@@ -96,8 +96,12 @@
                 {{ u.full_name }}
               </div>
             </td>
-            <td><span class="pb-badge {{ 'red' if u.role.value == 'admin' else 'yellow' if u.role.value == 'branch_manager' else 'green' if u.role.value == 'lobby_officer' else 'dark' }}">
-              {{ 'Specialist Doctor' if u.role.value == 'specialist_doctor' else u.role.value.replace('_',' ').title() }}
+            <td><span class="pb-badge {{ 'red' if u.role.value == 'admin' else 'green' if u.role.value == 'opd' else 'yellow' if u.role.value == 'pharmacy' else 'dark' }}">
+              {{ {
+                'admin': 'Admin', 'opd': 'OPD', 'pharmacy': 'Pharmacy',
+                'dentist': 'Dentist', 'cardiologists': 'Cardiologists',
+                'dermatologists': 'Dermatologists'
+              }.get(u.role.value, u.role.value.replace('_',' ').title()) }}
             </span></td>
             <td style="color:#888;font-size:12px;">{{ u.branch.name if u.branch else 'All' }}</td>
             <td style="color:#888;font-size:12px;">{{ u.last_login.strftime('%d %b %H:%M') if u.last_login else 'Never' }}</td>
@@ -106,6 +110,32 @@
         </tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- Appointment requests -->
+<div class="pb-card" id="appointment-requests" style="margin-top:16px;">
+  <div class="pb-card-header">
+    <div class="pb-card-title"><i class="ti ti-calendar-event" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Doctor appointment requests</div>
+  </div>
+  <div class="pb-card-body" style="padding:0;">
+    <table class="pb-table">
+      <thead><tr><th>Patient</th><th>Mobile</th><th>Specialty</th><th>Location</th><th>Requested</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for appointment in appointment_requests %}
+        <tr>
+          <td><strong>{{ appointment.full_name }}</strong></td>
+          <td>{{ appointment.mobile }}</td>
+          <td>{{ appointment.service_type.name if appointment.service_type else appointment.requested_role.replace('_', ' ')|title }}</td>
+          <td>{{ appointment.branch.name }}</td>
+          <td>{{ appointment.created_at.strftime('%d %b %Y %H:%M') }}</td>
+          <td><span class="pb-badge yellow">Pending</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#888;">No appointment requests yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -128,10 +158,11 @@
       <canvas id="role-chart" height="120"></canvas>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#c80000;"></div>Admin ({{ role_counts.admin }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#FFCB47;"></div>Operations Manager ({{ role_counts.branch_manager }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#99c630;"></div>Reception / OPD Staff ({{ role_counts.lobby_officer }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Department Staff ({{ role_counts.loan_officer }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Specialist Doctors ({{ role_counts.specialist_doctor }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#99c630;"></div>OPD ({{ role_counts.opd }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#FFCB47;"></div>Pharmacy ({{ role_counts.pharmacy }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Dentist ({{ role_counts.dentist }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Cardiologists ({{ role_counts.cardiologists }})</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Dermatologists ({{ role_counts.dermatologists }})</div>
       </div>
     </div>
   </div>
@@ -223,9 +254,9 @@
   new Chart(roleCtx, {
     type:'doughnut',
     data:{
-      labels:['Admin','Branch Manager','Lobby Officer','Loan Officer','Specialist Doctor'],
+      labels:['Admin','OPD','Pharmacy','Dentist','Cardiologists','Dermatologists'],
       datasets:[{ data: {{ role_counts.values() | list | tojson }},
-        backgroundColor:['#c80000','#FFCB47','#99c630','#4c4e54','#4c4e54'],
+        backgroundColor:['#c80000','#99c630','#FFCB47','#4c4e54','#707278','#92949a'],
         borderWidth:0, hoverOffset:4
       }]
     },

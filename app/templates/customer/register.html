@@ -13,11 +13,6 @@
     .reg-logo { width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #fff; }
     .reg-body { background: #fff; border-radius: 0 0 12px 12px; border: 0.5px solid #d1d2d5; border-top: none; padding: 20px; }
     .branch-info { background: var(--pb-yellow-light); border: 0.5px solid var(--pb-yellow); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #6b5800; margin-bottom: 16px; display: flex; align-items: center; gap: 6px; }
-    .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 4px; }
-    .service-option { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0.5px solid #d1d2d5; border-radius: 8px; cursor: pointer; font-size: 12px; color: #4c4e54; background: #f4f4f5; transition: all .12s; }
-    .service-option:hover { border-color: var(--pb-red); color: var(--pb-red); }
-    .service-option.selected { background: var(--pb-red-light); border-color: var(--pb-red); color: var(--pb-red); font-weight: 500; }
-    .service-option input { display: none; }
     #other-reason { display: none; margin-top: 8px; }
     .wait-info { background: var(--pb-dark-light); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #666; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   </style>
@@ -37,6 +32,10 @@
       <i class="ti ti-building"></i>
       <strong>{{ branch.name }}</strong> &nbsp;·&nbsp; {{ branch.city or 'Hospital location' }}
     </div>
+    <p style="font-size:12px;margin-bottom:16px;">
+      Need a scheduled visit instead?
+      <a href="{{ url_for('customer.appointment_request', branch_code=branch.code) }}">Request an appointment</a>
+    </p>
 
     <form id="reg-form">
       <input type="hidden" name="branch_id" value="{{ branch.id }}">
@@ -52,16 +51,13 @@
       </div>
 
       <div class="pb-form-group">
-        <label class="pb-form-label" style="margin-bottom:8px;">Department or service *</label>
-        <div class="service-grid">
+        <label class="pb-form-label" for="service-type">Department or service *</label>
+        <select id="service-type" name="service_type_id" class="pb-form-control" required>
+          <option value="">Select a department or service</option>
           {% for svc in services %}
-          <label class="service-option" for="svc-{{ svc.id }}">
-            <input type="radio" id="svc-{{ svc.id }}" name="service_type_id" value="{{ svc.id }}" required>
-            <i class="ti ti-{{ svc.code == 'G' and 'stethoscope' or svc.code == 'S' and 'user-heart' or svc.code == 'L' and 'test-pipe' or svc.code == 'R' and 'scan' or svc.code == 'P' and 'pill' or 'cash' }}"></i>
-            {{ svc.name }}
-          </label>
+          <option value="{{ svc.id }}">{{ svc.name }}</option>
           {% endfor %}
-        </div>
+        </select>
       </div>
 
       <div class="pb-priority-toggle mb-3" onclick="togglePriority(this)">
@@ -90,14 +86,6 @@
 </div>
 
 <script>
-  // Service selection
-  document.querySelectorAll('.service-option').forEach(label => {
-    label.addEventListener('click', () => {
-      document.querySelectorAll('.service-option').forEach(l => l.classList.remove('selected'));
-      label.classList.add('selected');
-    });
-  });
-
   // Priority toggle
   let priorityOn = false;
   function togglePriority(el) {

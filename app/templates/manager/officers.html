@@ -5,7 +5,7 @@
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">Officer Management</div>
-    <div class="pb-page-sub">Add reception and department staff for {{ branch.name if branch else 'your location' }}</div>
+    <div class="pb-page-sub">Add OPD and Pharmacy staff for {{ branch.name if branch else 'your location' }}</div>
   </div>
   <a href="/manager/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
@@ -38,8 +38,8 @@
           <option value="">Select role</option>
           {% for role in allowed_roles %}
           <option value="{{ role.name }}">{{ {
-            'LOBBY_OFFICER': 'Reception / OPD Staff',
-            'LOAN_OFFICER': 'Department Staff'
+            'OPD': 'OPD',
+            'PHARMACY': 'Pharmacy'
           }.get(role.name, role.value.replace('_',' ').title()) }}</option>
           {% endfor %}
         </select>
@@ -65,6 +65,8 @@
           <td>{{ officer.full_name }}</td>
           <td>{{ officer.email }}</td>
           <td>{{ {
+            'opd': 'OPD',
+            'pharmacy': 'Pharmacy',
             'lobby_officer': 'Reception / OPD Staff',
             'loan_officer': 'Department Staff'
           }.get(officer.role.value, officer.role.value.replace('_',' ').title()) }}</td>

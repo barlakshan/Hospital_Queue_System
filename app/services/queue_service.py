@@ -193,10 +193,16 @@ class QueueService:
     @staticmethod
     def complete_service(token_id: int, officer_user) -> QueueToken:
         token = QueueToken.query.get_or_404(token_id)
+        condition_summary = None
+        if hasattr(officer_user, "_complete_condition_summary"):
+            condition_summary = getattr(officer_user, "_complete_condition_summary")
         token.status       = TokenStatus.COMPLETED
         token.completed_at = datetime.now(timezone.utc)
         if not token.served_at:
             token.served_at = datetime.now(timezone.utc)
+        if condition_summary:
+            token.condition_summary = condition_summary
+            token.customer.condition_summary = condition_summary
         db.session.commit()
         try:
             from app.services.notification_service import push_queue_update
