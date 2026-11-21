@@ -1,4 +1,5 @@
 from io import BytesIO
+from datetime import date, timedelta
 
 import pytest
 from openpyxl import load_workbook
@@ -6,7 +7,7 @@ from openpyxl import load_workbook
 from app import create_app
 from app.config import TestingConfig
 from app.extensions import db
-from app.models import Customer, User, UserRole
+from app.models import Branch, Customer, QueueToken, ServiceType, User, UserRole
 
 
 @pytest.fixture()
@@ -158,3 +159,61 @@ def test_admin_analytics_renders_a_canvas_for_the_chart(app_client):
 
     assert response.status_code == 200
     assert b'<canvas id="daily-token-chart"' in response.data
+    assert b'location-demand-chart' in response.data
+    assert b'service-demand-chart' in response.data
+
+
+def test_admin_analytics_compares_locations_services_and_period_growth(app_client):
+    app, client = app_client
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "secret123"},
+    )
+    assert login.status_code == 200
+
+    with app.app_context():
+        branch = Branch(name="Downtown Clinic", code="DOWN", city="Colombo")
+        service = ServiceType(
+            name="Cardiology",
+            code="CARDI",
+            prefix="CA",
+            allowed_roles=[],
+        )
+        customer = Customer.query.filter_by(full_name="Customer Two").one()
+        db.session.add_all([branch, service])
+        db.session.flush()
+        db.session.add_all([
+            QueueToken(
+                branch_id=branch.id,
+                service_type_id=service.id,
+                customer_id=customer.id,
+                token_number="CA001",
+                queue_date=date.today(),
+            ),
+            QueueToken(
+                branch_id=branch.id,
+                service_type_id=service.id,
+                customer_id=customer.id,
+                token_number="CA002",
+                queue_date=date.today(),
+            ),
+            QueueToken(
+                branch_id=branch.id,
+                service_type_id=service.id,
+                customer_id=customer.id,
+                token_number="CA003",
+                queue_date=date.today() - timedelta(days=30),
+            ),
+        ])
+        db.session.commit()
+
+    analytics = client.get("/admin/analytics")
+    dashboard = client.get("/admin/dashboard")
+
+    assert analytics.status_code == 200
+    assert b"Downtown Clinic" in analytics.data
+    assert b"Cardiology" in analytics.data
+    assert b"+100%" in analytics.data
+    assert dashboard.status_code == 200
+    assert b"Demand by location" in dashboard.data
+    assert b"Demand by department / service" in dashboard.data

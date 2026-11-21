@@ -128,8 +128,28 @@ const OfficerConsole = (() => {
   /* ── Load waiting queue ── */
   function loadWaitingQueue() {
     fetch('/api/queue/waiting')
-    .then(r => r.json())
-    .then(tokens => renderQueue(tokens));
+    .then(async response => {
+      if (!response.ok) throw new Error('Unable to load the waiting queue');
+      const tokens = await response.json();
+      if (!Array.isArray(tokens)) throw new Error('Invalid waiting queue response');
+      renderQueue(tokens);
+    })
+    .catch(error => {
+      const el = document.getElementById('queue-list');
+      if (el) {
+        el.innerHTML = '';
+        const message = document.createElement('div');
+        message.className = 'text-center py-4 text-muted';
+        message.textContent = 'Waiting queue could not be loaded. Please retry.';
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn-pb-outline mt-2';
+        retry.textContent = 'Retry';
+        retry.addEventListener('click', loadWaitingQueue);
+        el.append(message, retry);
+      }
+      console.error('Failed to load waiting queue:', error);
+    });
   }
 
   function refreshQueue() {

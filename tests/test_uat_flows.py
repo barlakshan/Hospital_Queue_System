@@ -2,8 +2,9 @@ import pytest
 
 from app import create_app
 from app.extensions import db
-from app.models import (Branch, Counter, QueueToken, SatisfactionRating, ServiceType,
-                        TokenStatus, User, UserRole)
+from app.models import (AppointmentRequest, Branch, Counter, QueueToken,
+                        SatisfactionRating, ServiceType, TokenStatus, User,
+                        UserRole)
 
 
 @pytest.fixture()
@@ -92,6 +93,18 @@ def test_customer_registration_and_queue_lifecycle(client):
     payload = register_response.get_json()
     assert payload["token_number"].startswith("G")
     assert payload["position"] >= 0
+
+    waiting_before_refresh = client.get("/api/queue/waiting")
+    assert waiting_before_refresh.status_code == 200
+    assert [token["id"] for token in waiting_before_refresh.get_json()] == [
+        payload["token_id"]
+    ]
+    assert client.get("/officer/dashboard").status_code == 200
+    waiting_after_refresh = client.get("/api/queue/waiting")
+    assert waiting_after_refresh.status_code == 200
+    assert [token["id"] for token in waiting_after_refresh.get_json()] == [
+        payload["token_id"]
+    ]
 
     with client.application.app_context():
         token = QueueToken.query.get(payload["token_id"])
@@ -467,7 +480,7 @@ def test_appointment_requests_are_visible_to_admin_and_matching_doctor_role(clie
         for employee_id, email, role in (
             ("ADM100", "appointments-admin@example.com", UserRole.ADMIN),
             ("DOC100", "dentist@example.com", UserRole.DENTIST),
-            ("DOC101", "cardio@example.com", UserRole.CARDIOLOGISTS),
+            ("DOC101", "dermatologist@example.com", UserRole.DERMATOLOGISTS),
         ):
             user = User(
                 employee_id=employee_id,
@@ -482,17 +495,26 @@ def test_appointment_requests_are_visible_to_admin_and_matching_doctor_role(clie
         db.session.commit()
         branch_id = branch.id
         dental = ServiceType(
-            code="DENT", name="Dental", prefix="D"
+            code="DENT", name="Dental", prefix="D",
+            allowed_roles=[UserRole.DENTIST.value],
         )
-        cardiology = ServiceType(
-            code="CARD", name="Cardiology", prefix="C"
+        dermatology = ServiceType(
+            code="DERM", name="Dermatology", prefix="M",
+            allowed_roles=[UserRole.DERMATOLOGISTS.value],
         )
-        db.session.add_all([dental, cardiology])
+        db.session.add_all([dental, dermatology])
         db.session.commit()
         dental_service_id = dental.id
-        cardiology_service_id = cardiology.id
+        dermatology_service_id = dermatology.id
         User.query.filter_by(email="dentist@example.com").one().assigned_services = [dental]
-        User.query.filter_by(email="cardio@example.com").one().assigned_services = [cardiology]
+        User.query.filter_by(email="dermatologist@example.com").one().assigned_services = [dermatology]
+        db.session.add(AppointmentRequest(
+            branch_id=branch_id,
+            full_name="Misrouted service request",
+            mobile="0771234569",
+            service_type_id=dental_service_id,
+            requested_role=UserRole.DERMATOLOGISTS.value,
+        ))
         db.session.commit()
 
     invalid_response = client.post(
@@ -517,16 +539,16 @@ def test_appointment_requests_are_visible_to_admin_and_matching_doctor_role(clie
     )
     assert response.status_code == 201
     assert response.get_json()["status"] == "pending"
-    cardiology_response = client.post(
+    dermatology_response = client.post(
         "/api/queue/appointments",
         json={
             "branch_id": branch_id,
-            "full_name": "Patient Cardiology",
+            "full_name": "Patient Dermatology",
             "mobile": "0771234568",
-            "service_type_id": cardiology_service_id,
+            "service_type_id": dermatology_service_id,
         },
     )
-    assert cardiology_response.status_code == 201
+    assert dermatology_response.status_code == 201
 
     client.post(
         "/api/auth/login",
@@ -543,16 +565,131 @@ def test_appointment_requests_are_visible_to_admin_and_matching_doctor_role(clie
     dentist_dashboard = client.get("/officer/dashboard")
     assert dentist_dashboard.status_code == 200
     assert b"Patient Appointment" in dentist_dashboard.data
-    assert b"Patient Cardiology" not in dentist_dashboard.data
+    assert b"Patient Dermatology" not in dentist_dashboard.data
 
     client.post(
         "/api/auth/login",
-        json={"email": "cardio@example.com", "password": "secret123"},
+        json={"email": "dermatologist@example.com", "password": "secret123"},
     )
-    cardiologist_dashboard = client.get("/officer/dashboard")
-    assert cardiologist_dashboard.status_code == 200
-    assert b"Patient Appointment" not in cardiologist_dashboard.data
-    assert b"Patient Cardiology" in cardiologist_dashboard.data
+    dermatologist_dashboard = client.get("/officer/dashboard")
+    assert dermatologist_dashboard.status_code == 200
+    assert b"Patient Appointment" not in dermatologist_dashboard.data
+    assert b"Patient Dermatology" in dermatologist_dashboard.data
+    assert b"Misrouted service request" not in dermatologist_dashboard.data
+
+
+def test_specialist_dashboard_only_loads_its_role_services(client):
+    with client.application.app_context():
+        branch = Branch(code="SPC", name="Specialty Clinic", is_active=True)
+        db.session.add(branch)
+        db.session.flush()
+        cardiology = ServiceType(
+            code="CARD", name="Cardiologists", prefix="C",
+            allowed_roles=[UserRole.CARDIOLOGISTS.value],
+        )
+        dermatology = ServiceType(
+            code="DERM", name="Dermatologists", prefix="M",
+            allowed_roles=[UserRole.DERMATOLOGISTS.value],
+        )
+        admin = User(
+            employee_id="ADM300",
+            full_name="Specialty Admin",
+            email="specialty-admin@example.com",
+            role=UserRole.ADMIN,
+        )
+        dermatologist = User(
+            employee_id="DOC300",
+            full_name="Dermatology Officer",
+            email="dermatology-officer@example.com",
+            role=UserRole.DERMATOLOGISTS,
+            branch_id=branch.id,
+        )
+        cardiologist = User(
+            employee_id="DOC301",
+            full_name="Cardiology Officer",
+            email="cardiology-officer@example.com",
+            role=UserRole.CARDIOLOGISTS,
+            branch_id=branch.id,
+        )
+        admin.set_password("secret123")
+        dermatologist.set_password("secret123")
+        cardiologist.set_password("secret123")
+        db.session.add_all([cardiology, dermatology, admin, dermatologist, cardiologist])
+        db.session.commit()
+        dermatologist.assigned_services = [cardiology, dermatology]
+        cardiologist.assigned_services = [cardiology]
+        branch_id = branch.id
+        cardiology_id = cardiology.id
+        dermatology_id = dermatology.id
+        db.session.commit()
+
+    cardiology_token = client.post(
+        "/api/queue/register",
+        json={
+            "branch_id": branch_id,
+            "full_name": "Cardiology Patient",
+            "mobile": "0771234570",
+            "service_type_id": cardiology_id,
+        },
+    ).get_json()["token_id"]
+    dermatology_token = client.post(
+        "/api/queue/register",
+        json={
+            "branch_id": branch_id,
+            "full_name": "Dermatology Patient",
+            "mobile": "0771234571",
+            "service_type_id": dermatology_id,
+        },
+    ).get_json()["token_id"]
+    specialty_appointment = client.post(
+        "/api/queue/appointments",
+        json={
+            "branch_id": branch_id,
+            "full_name": "Dermatology Appointment",
+            "mobile": "0771234572",
+            "requested_role": UserRole.DERMATOLOGISTS.value,
+        },
+    )
+    assert specialty_appointment.status_code == 201
+    assert specialty_appointment.get_json()["service_type_id"] == dermatology_id
+
+    invalid_assignment = client.post(
+        "/api/auth/login",
+        json={"email": "specialty-admin@example.com", "password": "secret123"},
+    )
+    assert invalid_assignment.status_code == 200
+    rejected_user = client.post(
+        "/api/admin/users",
+        json={
+            "employee_id": "DOC302",
+            "full_name": "Wrong Specialty",
+            "email": "wrong-specialty@example.com",
+            "password": "secret123",
+            "role": "DERMATOLOGISTS",
+            "branch_id": branch_id,
+            "service_ids": [cardiology_id],
+        },
+    )
+    assert rejected_user.status_code == 400
+
+    assert client.post(
+        "/api/auth/login",
+        json={"email": "dermatology-officer@example.com", "password": "secret123"},
+    ).status_code == 200
+    dermatology_queue = client.get("/api/queue/waiting").get_json()
+    assert [token["id"] for token in dermatology_queue] == [dermatology_token]
+    assert b"Cardiology Patient" not in client.get("/officer/queue").data
+    assert b"Dermatology Patient" in client.get("/officer/queue").data
+    call = client.post("/api/queue/call-next", json={"counter_id": None})
+    assert call.status_code == 200
+    assert call.get_json()["token_id"] == dermatology_token
+
+    assert client.post(
+        "/api/auth/login",
+        json={"email": "cardiology-officer@example.com", "password": "secret123"},
+    ).status_code == 200
+    cardiology_queue = client.get("/api/queue/waiting").get_json()
+    assert [token["id"] for token in cardiology_queue] == [cardiology_token]
 
 
 def test_clean_data_requires_confirmation_and_preserves_admin_accounts(client):

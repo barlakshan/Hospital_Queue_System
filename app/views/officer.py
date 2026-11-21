@@ -7,7 +7,7 @@ from app.models import (
 )
 from app.utils.decorators import require_role
 from app.extensions import db
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from datetime import date, datetime
 
 
@@ -90,20 +90,12 @@ def dashboard():
 
     appointment_requests = []
     if services or current_user.role in DOCTOR_ROLES:
-        request_filters = [
-            AppointmentRequest.requested_role == current_user.role.value,
-        ]
-        if current_user._legacy_service_role:
-            request_filters.append(
-                AppointmentRequest.requested_role == current_user._legacy_service_role
-            )
-        if service_ids:
-            request_filters.append(AppointmentRequest.service_type_id.in_(service_ids))
-        request_query = AppointmentRequest.query.filter(or_(*request_filters))
-        if branch_id is not None:
-            request_query = request_query.filter_by(branch_id=branch_id)
         appointment_requests = (
-            request_query.order_by(AppointmentRequest.created_at.desc())
+            AppointmentRequest.query.filter(
+                AppointmentRequest.branch_id == branch_id,
+                AppointmentRequest.service_type_id.in_(service_ids),
+            )
+            .order_by(AppointmentRequest.created_at.desc())
             .limit(20)
             .all()
         )

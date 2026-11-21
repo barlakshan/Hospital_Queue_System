@@ -57,12 +57,22 @@ def request_appointment():
             UserRole.CARDIOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
             UserRole.DERMATOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
         }.get(requested_role)
+        active_services = ServiceType.query.filter_by(is_active=True).all()
         service = next(
-            (candidate for candidate in ServiceType.query.filter_by(is_active=True).all()
-             if requested_role.value in (candidate.allowed_roles or [])
-             or legacy_role in (candidate.allowed_roles or [])),
+            (candidate for candidate in active_services
+             if requested_role.value in (candidate.allowed_roles or [])),
             None,
         )
+        if service is None and legacy_role:
+            service = next(
+                (candidate for candidate in active_services
+                 if legacy_role in (candidate.allowed_roles or [])
+                 and not any(
+                     role.value in (candidate.allowed_roles or [])
+                     for role in DOCTOR_ROLES
+                 )),
+                None,
+            )
         if not service:
             return jsonify({"error": "No active service is configured for this specialty"}), 400
 

@@ -33,6 +33,21 @@ DOCTOR_ROLES = (
     UserRole.DERMATOLOGISTS,
 )
 SERVICE_ROLES = ASSIGNABLE_ROLES[1:]
+SPECIALTY_ROLE_VALUES = {role.value for role in DOCTOR_ROLES}
+
+
+def service_is_compatible_with_role(role, service):
+    if role not in DOCTOR_ROLES:
+        return True
+
+    allowed_roles = set(service.allowed_roles or [])
+    specialty_roles = allowed_roles.intersection(SPECIALTY_ROLE_VALUES)
+    if specialty_roles:
+        return role.value in specialty_roles
+    return (
+        role.value in allowed_roles
+        or UserRole.SPECIALIST_DOCTOR.value in allowed_roles
+    )
 
 user_services = db.Table(
     "user_services",
@@ -82,11 +97,20 @@ class User(UserMixin, db.Model):
             return [
                 service.code for service in self.assigned_services
                 if service.is_active
+                and (
+                    self.role not in DOCTOR_ROLES
+                    or service_is_compatible_with_role(self.role, service)
+                )
+            ]
+        if self.role not in DOCTOR_ROLES:
+            return [
+                service.code for service in self._active_services()
+                if self.role.value in (service.allowed_roles or [])
+                or self._legacy_service_role in (service.allowed_roles or [])
             ]
         return [
             service.code for service in self._active_services()
-            if self.role.value in (service.allowed_roles or [])
-            or self._legacy_service_role in (service.allowed_roles or [])
+            if service_is_compatible_with_role(self.role, service)
         ]
 
     @property

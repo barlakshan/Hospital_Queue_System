@@ -1,6 +1,7 @@
 from app.models.branch import Branch
 from app.models.user import (
     ASSIGNABLE_ROLES, DOCTOR_ROLES, SERVICE_ROLES, User, UserRole,
+    service_is_compatible_with_role,
 )
 from app.models.appointment_request import AppointmentRequest
 from app.models.customer import Customer
@@ -13,7 +14,8 @@ from app.models.satisfaction_rating import SatisfactionRating
 
 __all__ = [
     "Branch", "User", "UserRole", "ASSIGNABLE_ROLES", "DOCTOR_ROLES",
-    "SERVICE_ROLES", "AppointmentRequest", "Customer", "ServiceType", "Counter",
+    "SERVICE_ROLES", "service_is_compatible_with_role",
+    "AppointmentRequest", "Customer", "ServiceType", "Counter",
     "QueueToken", "TokenStatus", "PriorityReason",
     "SmsLog", "SmsType", "SmsStatus", "AuditLog", "SatisfactionRating",
 ]

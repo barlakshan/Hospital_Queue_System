@@ -139,31 +139,27 @@
   </div>
 </div>
 
-<!-- Analytics charts -->
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px;">
-  <div class="pb-card">
-    <div class="pb-card-header">
-      <div class="pb-card-title"><i class="ti ti-chart-area" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Tokens issued — last 7 days (all branches)</div>
+<!-- Demand analytics -->
+<div class="pb-card" style="margin-top:16px;">
+  <div class="pb-card-header">
+    <div>
+      <div class="pb-card-title"><i class="ti ti-chart-area" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Patient demand overview</div>
+      <div style="font-size:12px;color:#888;margin-top:4px;">Last 30 days · compare locations and departments separately</div>
     </div>
-    <div class="pb-card-body">
-      <canvas id="weekly-chart" height="120"></canvas>
-    </div>
+    <a href="/admin/analytics" style="font-size:12px;color:var(--pb-red);">Full analytics →</a>
   </div>
-
-  <div class="pb-card">
-    <div class="pb-card-header">
-      <div class="pb-card-title"><i class="ti ti-chart-pie" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Role distribution</div>
+  <div class="pb-card-body" id="admin-demand-charts" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;">
+    <div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:12px;">Daily demand</div>
+      <canvas id="weekly-chart" aria-label="Daily patient demand for the last 30 days"></canvas>
     </div>
-    <div class="pb-card-body">
-      <canvas id="role-chart" height="120"></canvas>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#c80000;"></div>Admin ({{ role_counts.admin }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#99c630;"></div>OPD ({{ role_counts.opd }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#FFCB47;"></div>Pharmacy ({{ role_counts.pharmacy }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Dentist ({{ role_counts.dentist }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Cardiologists ({{ role_counts.cardiologists }})</div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;"><div style="width:10px;height:10px;border-radius:2px;background:#4c4e54;"></div>Dermatologists ({{ role_counts.dermatologists }})</div>
-      </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:12px;">Demand by location</div>
+      <canvas id="location-chart" aria-label="Patient demand by location for the last 30 days"></canvas>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:12px;">Demand by department / service</div>
+      <canvas id="service-chart" aria-label="Patient demand by department or service for the last 30 days"></canvas>
     </div>
   </div>
 </div>
@@ -224,43 +220,55 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-  const weeklyCtx = document.getElementById('weekly-chart').getContext('2d');
-  new Chart(weeklyCtx, {
+  const demand = {{ demand_analytics | tojson }};
+  const demandChartOptions = {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#f0f0f0' } },
+      x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } }
+    }
+  };
+  new Chart(document.getElementById('weekly-chart'), {
     type: 'line',
     data: {
-      labels: {{ weekly_labels | tojson }},
+      labels: demand.daily_stats.map(day => day.date),
       datasets: [{
-        label: 'Tokens issued',
-        data: {{ weekly_data | tojson }},
+        label: 'Patients',
+        data: demand.daily_stats.map(day => day.tokens),
         borderColor: '#c80000',
         backgroundColor: 'rgba(200,0,0,.08)',
         fill: true,
-        tension: 0.4,
+        tension: 0.3,
         pointBackgroundColor: '#c80000',
-        pointRadius: 4,
+        pointRadius: 1,
       }]
     },
-    options: {
-      responsive:true,
-      plugins:{ legend:{ display:false } },
-      scales:{
-        y:{ beginAtZero:true, grid:{ color:'#f0f0f0' } },
-        x:{ grid:{ display:false } }
-      }
-    }
+    options: demandChartOptions
   });
-
-  const roleCtx = document.getElementById('role-chart').getContext('2d');
-  new Chart(roleCtx, {
-    type:'doughnut',
-    data:{
-      labels:['Admin','OPD','Pharmacy','Dentist','Cardiologists','Dermatologists'],
-      datasets:[{ data: {{ role_counts.values() | list | tojson }},
-        backgroundColor:['#c80000','#99c630','#FFCB47','#4c4e54','#707278','#92949a'],
-        borderWidth:0, hoverOffset:4
-      }]
+  new Chart(document.getElementById('location-chart'), {
+    type: 'bar',
+    data: {
+      labels: demand.branch_stats.map(branch => branch.label),
+      datasets: [{ label: 'Patients', data: demand.branch_stats.map(branch => branch.tokens), backgroundColor: '#c80000', borderRadius: 4 }]
     },
-    options:{ responsive:true, cutout:'60%', plugins:{ legend:{ display:false } } }
+    options: demandChartOptions
+  });
+  new Chart(document.getElementById('service-chart'), {
+    type: 'bar',
+    data: {
+      labels: demand.service_stats.map(service => service.label),
+      datasets: [{ label: 'Patients', data: demand.service_stats.map(service => service.tokens), backgroundColor: '#99c630', borderRadius: 4 }]
+    },
+    options: demandChartOptions
   });
 </script>
+{% endblock %}
+
+{% block head %}
+<style>
+  @media (max-width: 900px) {
+    #admin-demand-charts { grid-template-columns: 1fr !important; }
+  }
+</style>
 {% endblock %}

@@ -8,6 +8,7 @@ from app.views import admin_view_bp
 from app.models import (
     ASSIGNABLE_ROLES, SERVICE_ROLES, AppointmentRequest, Branch, User, UserRole,
     QueueToken, Customer, AuditLog, SatisfactionRating, ServiceType,
+    service_is_compatible_with_role,
 )
 from app.utils.decorators import require_role, audit_action
 from app.extensions import db
@@ -116,11 +117,106 @@ def _validated_service_updates(service, form):
     return name, prefix, avg_service_min, allowed_roles
 
 
+def _admin_demand_analytics(today):
+    period_start = today - timedelta(days=29)
+    previous_start = today - timedelta(days=59)
+    previous_end = period_start - timedelta(days=1)
+
+    daily_counts = dict(
+        db.session.query(QueueToken.queue_date, func.count(QueueToken.id))
+        .filter(QueueToken.queue_date.between(period_start, today))
+        .group_by(QueueToken.queue_date)
+        .all()
+    )
+    daily_stats = [
+        {
+            "date": (today - timedelta(days=days_ago)).isoformat(),
+            "tokens": daily_counts.get(today - timedelta(days=days_ago), 0),
+        }
+        for days_ago in range(29, -1, -1)
+    ]
+
+    tokens_30d = sum(daily_counts.values())
+    tokens_previous_30d = (
+        QueueToken.query
+        .filter(QueueToken.queue_date.between(previous_start, previous_end))
+        .count()
+    )
+    growth_percent = (
+        round((tokens_30d - tokens_previous_30d) * 100 / tokens_previous_30d)
+        if tokens_previous_30d
+        else None
+    )
+
+    branch_counts = dict(
+        db.session.query(Branch.id, func.count(QueueToken.id))
+        .join(QueueToken, QueueToken.branch_id == Branch.id)
+        .filter(
+            Branch.is_active.is_(True),
+            QueueToken.queue_date.between(period_start, today),
+        )
+        .group_by(Branch.id)
+        .all()
+    )
+    branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
+    branch_stats = [
+        {
+            "label": branch.name,
+            "city": branch.city,
+            "tokens": branch_counts.get(branch.id, 0),
+        }
+        for branch in branches
+    ]
+    branch_stats.sort(key=lambda item: (-item["tokens"], item["label"].casefold()))
+
+    service_counts = dict(
+        db.session.query(ServiceType.id, func.count(QueueToken.id))
+        .join(QueueToken, QueueToken.service_type_id == ServiceType.id)
+        .filter(
+            ServiceType.is_active.is_(True),
+            QueueToken.queue_date.between(period_start, today),
+        )
+        .group_by(ServiceType.id)
+        .all()
+    )
+    services = ServiceType.query.filter_by(is_active=True).order_by(ServiceType.name).all()
+    service_stats = [
+        {
+            "label": service.name,
+            "tokens": service_counts.get(service.id, 0),
+        }
+        for service in services
+    ]
+    service_stats.sort(key=lambda item: (-item["tokens"], item["label"].casefold()))
+
+    return {
+        "daily_stats": daily_stats,
+        "branch_stats": branch_stats,
+        "service_stats": service_stats,
+        "metrics": {
+            "tokens_30d": tokens_30d,
+            "tokens_previous_30d": tokens_previous_30d,
+            "growth_percent": growth_percent,
+            "active_branches": len(branches),
+            "active_services": len(services),
+            "top_branch": next(
+                (branch["label"] for branch in branch_stats if branch["tokens"]),
+                None,
+            ),
+            "top_service": next(
+                (service["label"] for service in service_stats if service["tokens"]),
+                None,
+            ),
+        },
+    }
+
+
 @admin_view_bp.route("/dashboard")
 @login_required
 @require_role(UserRole.ADMIN)
 def dashboard():
     today = date.today()
+    demand_analytics = _admin_demand_analytics(today)
     yest  = today - timedelta(days=1)
 
     total_branches = Branch.query.filter_by(is_active=True).count()
@@ -156,17 +252,6 @@ def dashboard():
         "avg_rating": round(float(r or 0), 1) if r else None,
     } for b, cnt, r in top_branches_raw]
 
-    role_counts = {
-        role.name.lower(): User.query.filter_by(is_active=True, role=role).count()
-        for role in ASSIGNABLE_ROLES
-    }
-
-    weekly_data, weekly_labels = [], []
-    for i in range(6, -1, -1):
-        d = today - timedelta(days=i)
-        weekly_labels.append(d.strftime("%a"))
-        weekly_data.append(QueueToken.query.filter_by(queue_date=d).count())
-
     recent_users    = User.query.filter_by(is_active=True).order_by(User.created_at.desc()).limit(8).all()
     audit_logs      = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(10).all()
     appointment_requests = (
@@ -198,8 +283,7 @@ def dashboard():
         top_branches=top_branches, recent_users=recent_users,
         audit_logs=audit_logs, recent_customers=recent_customers,
         appointment_requests=appointment_requests,
-        role_counts=role_counts,
-        weekly_labels=weekly_labels, weekly_data=weekly_data,
+        demand_analytics=demand_analytics,
     )
 
 
@@ -360,14 +444,23 @@ def _selected_active_services(form):
     return services
 
 
+def _validate_role_services(role, services):
+    if any(not service_is_compatible_with_role(role, service) for service in services):
+        raise ValueError("Select services configured for this staff role.")
+
+
 def _user_form_service_ids(user):
     if not user or user.role == UserRole.ADMIN:
         return set()
+    allowed_codes = set(user.allowed_service_codes)
     if user.assigned_services:
-        return {service.id for service in user.assigned_services}
+        return {
+            service.id for service in user.assigned_services
+            if service.code in allowed_codes
+        }
     return {
         service.id for service in ServiceType.query.filter(
-            ServiceType.code.in_(user.allowed_service_codes)
+            ServiceType.code.in_(allowed_codes)
         ).all()
     }
 
@@ -491,6 +584,7 @@ def user_new():
             selected_services = _selected_active_services(request.form)
             if role != UserRole.ADMIN and not selected_services:
                 raise ValueError("Assign at least one service to this user.")
+            _validate_role_services(role, selected_services)
         except ValueError as error:
             flash(str(error), "danger")
             return render_template(
@@ -544,6 +638,7 @@ def user_edit(user_id):
             selected_services = _selected_active_services(request.form)
             if user.role not in (UserRole.ADMIN, UserRole.BRANCH_MANAGER) and not selected_services:
                 raise ValueError("Assign at least one service to this user.")
+            _validate_role_services(user.role, selected_services)
         except ValueError as error:
             flash(str(error), "danger")
             return render_template(
@@ -668,15 +763,8 @@ def audit_logs_view():
 @require_role(UserRole.ADMIN)
 def analytics():
     today = date.today()
-    branches = Branch.query.filter_by(is_active=True).all()
-    
-    # Daily stats for last 30 days
-    daily_stats = []
-    for i in range(29, -1, -1):
-        d = today - timedelta(days=i)
-        tokens = QueueToken.query.filter_by(queue_date=d).count()
-        daily_stats.append({"date": d.isoformat(), "tokens": tokens})
-    
-    return render_template("admin/analytics.html", 
-                         daily_stats=daily_stats,
-                         branches=branches)
+    demand_analytics = _admin_demand_analytics(today)
+    return render_template(
+        "admin/analytics.html",
+        demand_analytics=demand_analytics,
+    )

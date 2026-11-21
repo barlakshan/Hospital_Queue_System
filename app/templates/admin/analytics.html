@@ -1,51 +1,184 @@
 {% extends "base.html" %}
 {% block title %}Analytics — Admin Dashboard{% endblock %}
 
+{% block head %}
+<style>
+  .analytics-metrics { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px; }
+  .analytics-metric { min-width:0; }
+  .analytics-metric-value { font-size:24px;font-weight:700;color:#202124;line-height:1.2;overflow-wrap:anywhere; }
+  .analytics-metric-label { font-size:12px;color:#777;margin-top:6px; }
+  .analytics-chart-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px; }
+  .analytics-chart { height:290px; }
+  .analytics-chart-wide { height:330px; }
+  @media (max-width: 900px) {
+    .analytics-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .analytics-chart-grid { grid-template-columns:1fr; }
+  }
+  @media (max-width: 540px) {
+    .analytics-metrics { grid-template-columns:1fr 1fr;gap:8px; }
+    .analytics-metric-value { font-size:20px; }
+    .analytics-chart { height:240px; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="pb-page-header">
   <div>
-    <div class="pb-page-title">System Analytics</div>
-    <div class="pb-page-sub">Historical data and performance metrics</div>
+    <div class="pb-page-title">Business analytics</div>
+    <div class="pb-page-sub">Patient demand and growth across all active locations and departments</div>
   </div>
   <a href="/admin/dashboard" class="btn-pb-outline"><i class="ti ti-arrow-left"></i> Back</a>
 </div>
 
-<div class="pb-card">
-  <div class="pb-card-header">
-    <div class="pb-card-title">Tokens Generated (Last 30 Days)</div>
+<div class="analytics-metrics">
+  <div class="pb-stat-card analytics-metric">
+    <div class="pb-stat-label">Patient visits · last 30 days</div>
+    <div class="analytics-metric-value">{{ demand_analytics.metrics.tokens_30d | number_format }}</div>
+    <div class="analytics-metric-label">Queue tokens issued across the network</div>
   </div>
-  <div id="chart-container" style="height:400px;">
-    <canvas id="daily-token-chart" aria-label="Tokens generated over the last 30 days"></canvas>
+  <div class="pb-stat-card analytics-metric">
+    <div class="pb-stat-label">Change vs previous 30 days</div>
+    <div class="analytics-metric-value">
+      {% if demand_analytics.metrics.growth_percent is not none %}
+        {{ '+' if demand_analytics.metrics.growth_percent > 0 else '' }}{{ demand_analytics.metrics.growth_percent }}%
+      {% else %}
+        —
+      {% endif %}
+    </div>
+    <div class="analytics-metric-label">
+      {% if demand_analytics.metrics.growth_percent is not none %}
+        Previous period: {{ demand_analytics.metrics.tokens_previous_30d | number_format }} visits
+      {% else %}
+        No visits in the previous period to compare
+      {% endif %}
+    </div>
+  </div>
+  <div class="pb-stat-card analytics-metric">
+    <div class="pb-stat-label">Active locations</div>
+    <div class="analytics-metric-value">{{ demand_analytics.metrics.active_branches }}</div>
+    <div class="analytics-metric-label">Top demand: {{ demand_analytics.metrics.top_branch or 'No demand yet' }}</div>
+  </div>
+  <div class="pb-stat-card analytics-metric">
+    <div class="pb-stat-label">Busiest department / service</div>
+    <div class="analytics-metric-value" style="font-size:19px;">
+      {{ demand_analytics.metrics.top_service or 'No demand yet' }}
+    </div>
+    <div class="analytics-metric-label">{{ demand_analytics.metrics.active_services }} active services</div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<div class="pb-card">
+  <div class="pb-card-header">
+    <div>
+      <div class="pb-card-title"><i class="ti ti-trending-up" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Network demand trend</div>
+      <div style="font-size:12px;color:#888;margin-top:4px;">Daily visits · last 30 days</div>
+    </div>
+  </div>
+  <div class="pb-card-body">
+    <div class="analytics-chart-wide">
+      <canvas id="daily-token-chart" aria-label="Daily patient visits over the last 30 days"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="analytics-chart-grid">
+  <div class="pb-card">
+    <div class="pb-card-header">
+      <div>
+        <div class="pb-card-title"><i class="ti ti-building" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Demand by location</div>
+        <div style="font-size:12px;color:#888;margin-top:4px;">Compare active locations · last 30 days</div>
+      </div>
+    </div>
+    <div class="pb-card-body">
+      <div class="analytics-chart">
+        <canvas id="location-demand-chart" aria-label="Patient visits by active location over the last 30 days"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="pb-card">
+    <div class="pb-card-header">
+      <div>
+        <div class="pb-card-title"><i class="ti ti-stethoscope" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Demand by department / service</div>
+        <div style="font-size:12px;color:#888;margin-top:4px;">Compare active specialties and services · last 30 days</div>
+      </div>
+    </div>
+    <div class="pb-card-body">
+      <div class="analytics-chart">
+        <canvas id="service-demand-chart" aria-label="Patient visits by active department or service over the last 30 days"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-  const dailyStats = {{ daily_stats | tojson }};
-  const ctx = document.getElementById('daily-token-chart').getContext('2d');
-  
-  new Chart(ctx, {
+  const demand = {{ demand_analytics | tojson }};
+  const comparisonOptions = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#f0f0f0' } },
+      y: { grid: { display: false } }
+    }
+  };
+
+  new Chart(document.getElementById('daily-token-chart'), {
     type: 'line',
     data: {
-      labels: dailyStats.map(d => d.date),
+      labels: demand.daily_stats.map(day => day.date),
       datasets: [{
-        label: 'Tokens Generated',
-        data: dailyStats.map(d => d.tokens),
-        borderColor: '#0066cc',
-        backgroundColor: 'rgba(0, 102, 204, 0.1)',
+        label: 'Patient visits',
+        data: demand.daily_stats.map(day => day.tokens),
+        borderColor: '#c80000',
+        backgroundColor: 'rgba(200, 0, 0, .08)',
+        fill: true,
         tension: 0.3,
+        pointRadius: 2,
+        pointBackgroundColor: '#c80000',
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: { display: true }
-      },
+      plugins: { legend: { display: false } },
       scales: {
-        y: { beginAtZero: true }
+        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#f0f0f0' } },
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }
       }
     }
+  });
+
+  new Chart(document.getElementById('location-demand-chart'), {
+    type: 'bar',
+    data: {
+      labels: demand.branch_stats.map(branch => branch.label),
+      datasets: [{
+        label: 'Patient visits',
+        data: demand.branch_stats.map(branch => branch.tokens),
+        backgroundColor: '#c80000',
+        borderRadius: 4,
+      }]
+    },
+    options: comparisonOptions
+  });
+
+  new Chart(document.getElementById('service-demand-chart'), {
+    type: 'bar',
+    data: {
+      labels: demand.service_stats.map(service => service.label),
+      datasets: [{
+        label: 'Patient visits',
+        data: demand.service_stats.map(service => service.tokens),
+        backgroundColor: '#99c630',
+        borderRadius: 4,
+      }]
+    },
+    options: comparisonOptions
   });
 </script>
 {% endblock %}

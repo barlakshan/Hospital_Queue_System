@@ -2,7 +2,8 @@ from flask import request, jsonify
 from flask_login import login_required
 from app.api import admin_bp
 from app.models import (
-    ASSIGNABLE_ROLES, Branch, User, UserRole, AuditLog, Counter, ServiceType,
+    ASSIGNABLE_ROLES, DOCTOR_ROLES, Branch, User, UserRole, AuditLog, Counter, ServiceType,
+    service_is_compatible_with_role,
 )
 from app.extensions import db
 from app.utils.decorators import require_role, audit_action
@@ -24,6 +25,12 @@ def _service_assignments(values, role):
         raise ValueError("Select only active services.")
     if role != UserRole.ADMIN and not services:
         raise ValueError("Assign at least one service to this user.")
+    if role in DOCTOR_ROLES and any(
+        not service_is_compatible_with_role(role, service) for service in services
+    ):
+        raise ValueError(
+            "Selected services are not configured for this staff role."
+        )
     return services
 
 
@@ -183,8 +190,16 @@ def update_user(user_id):
             user.assigned_services = _service_assignments(data["service_ids"], user.role)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
-    elif user.role != UserRole.ADMIN and not user.assigned_services:
-        return jsonify({"error": "Assign at least one service to this user."}), 400
+    elif user.role != UserRole.ADMIN:
+        if not user.assigned_services:
+            return jsonify({"error": "Assign at least one service to this user."}), 400
+        if any(
+            not service_is_compatible_with_role(user.role, service)
+            for service in user.assigned_services
+        ):
+            return jsonify({
+                "error": "Assign services configured for this staff role."
+            }), 400
     if "password" in data and data["password"]:
         user.set_password(data["password"])
     db.session.commit()
