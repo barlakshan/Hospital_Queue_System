@@ -195,7 +195,7 @@ class SmsService:
     @classmethod
     def _textlk(cls, mobile: str, message: str) -> dict:
         """
-        Send SMS using Text.lk API: https://app.text.lk/api/v3/sms/send
+        Send SMS using Text.lk API: https://app.text.lk/api/http/sms/send
         Expects `TEXTLK_API_TOKEN` in app config and optional `TEXTLK_SENDER_ID`.
         Returns a dict with at least `message_id` when available.
         """
@@ -212,13 +212,13 @@ class SmsService:
 
         try:
             resp = requests.post(
-                "https://app.text.lk/api/v3/sms/send",
+                "https://app.text.lk/api/http/sms/send",
                 headers={
-                    "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                 },
                 json={
+                    "api_token": token,
                     "recipient": recipient,
                     "sender_id": sender,
                     "type": "plain",
