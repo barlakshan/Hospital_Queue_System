@@ -58,7 +58,24 @@ sudo systemctl status pbqms
 curl http://127.0.0.1:8000/
 ```
 
-## 7. Optional: HTTPS with Nginx and Let's Encrypt
+## 7. Enable GitHub Actions deployment
+The workflow runs tests on GitHub-hosted Ubuntu, then deploys pushes to `main` on a self-hosted runner installed on this EC2 instance.
+
+1. Install and register a GitHub Actions self-hosted runner for this repository on the EC2 instance. Run the runner service as `ubuntu`; the workflow expects its default `self-hosted`, `linux`, and `x64` labels.
+2. Install `rsync` and make the existing checkout writable by the runner:
+   ```bash
+   sudo apt install -y rsync
+   sudo chown -R ubuntu:ubuntu /home/ubuntu/pbqms
+   ```
+3. Keep the production `.env` at `/home/ubuntu/pbqms/.env`. The workflow deliberately excludes it and the SQLite database and QR-code data from source sync.
+4. Allow the runner to restart only this application service without a password. Create `/etc/sudoers.d/pbqms-deploy` with:
+   ```text
+   ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl restart pbqms
+   ```
+   Validate the file with `sudo visudo -cf /etc/sudoers.d/pbqms-deploy`.
+5. Push to `main` or run **CI/CD** from the repository's Actions tab. The deployment applies database migrations, restarts `pbqms`, and checks the local HTTP endpoint.
+
+## 8. Optional: HTTPS with Nginx and Let's Encrypt
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com

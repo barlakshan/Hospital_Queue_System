@@ -26,7 +26,9 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 mkdir -p static/qrcodes
-cp .env.example .env
+if [ ! -f .env ]; then
+  cp .env.example .env
+fi
 
 cat > /etc/nginx/sites-available/pbqms <<'EOF'
 server {
@@ -78,6 +80,7 @@ EOF
 systemctl daemon-reload
 systemctl enable pbqms
 systemctl restart pbqms
+chown -R ubuntu:ubuntu "$APP_DIR"
 
 echo "EC2 deployment setup completed."
 echo "Next steps:"
