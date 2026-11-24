@@ -90,7 +90,7 @@ def upgrade():
         sa.Column('called_at',          sa.DateTime),
         sa.Column('served_at',          sa.DateTime),
         sa.Column('completed_at',       sa.DateTime),
-        sa.Column('queue_date',         sa.Date,     server_default=sa.func.current_date()),
+        sa.Column('queue_date',         sa.Date,     server_default=sa.text("(CURRENT_DATE)")),
         sa.UniqueConstraint('branch_id','service_type_id','token_number','queue_date',
                              name='uq_token_per_service_per_day'),
     )
