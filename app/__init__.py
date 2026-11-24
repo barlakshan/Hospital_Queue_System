@@ -269,13 +269,25 @@ def register_cli(app):
 
     @app.cli.command("seed-db")
     def seed_db():
-        """Seed hospital services and initialize the schema if needed."""
+        """Seed hospital services (run `flask db upgrade` first)."""
         from app.models import ServiceType
 
         with app.app_context():
             db.session.remove()
-            db.create_all()
-            db.session.commit()
+            if app.config.get("TESTING"):
+                db.create_all()
+                db.session.commit()
+            else:
+                # create_all() on a real database builds tables from the current
+                # models without recording an Alembic revision, leaving a schema
+                # that `flask db upgrade` can neither stamp nor migrate.
+                inspector = db.inspect(db.engine)
+                migrated = "alembic_version" in inspector.get_table_names() and \
+                    db.session.execute(db.text("SELECT 1 FROM alembic_version")).first()
+                if not migrated:
+                    raise click.ClickException(
+                        "The database schema is not migrated. Run `flask db upgrade` first."
+                    )
 
             added = 0
             for code, name, prefix, avg_service_min, allowed_roles in hospital_services:
