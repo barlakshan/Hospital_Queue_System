@@ -44,6 +44,9 @@ LEGACY_TO_CURRENT = {
     "specialist_doctor": ["dentist", "cardiologists", "dermatologists"],
 }
 SPECIALTIES = {"dentist", "cardiologists", "dermatologists"}
+# Index that backs the appointment_requests.branch_id FK on MySQL while 010 is
+# downgraded.
+BRANCH_FK_INDEX = "ix_appointment_requests_branch_id"
 
 
 def _index_names(table):
@@ -116,6 +119,9 @@ def upgrade():
         batch.create_foreign_key("fk_appointment_requests_handled_by",
                                  "users", ["handled_by"], ["id"])
         batch.create_index("ix_appointments_branch_status", ["branch_id", "status"])
+    # Left behind by an earlier downgrade; the composite index above covers it.
+    if BRANCH_FK_INDEX in _index_names("appointment_requests"):
+        op.drop_index(BRANCH_FK_INDEX, table_name="appointment_requests")
     with op.batch_alter_table("users") as batch:
         batch.add_column(sa.Column("must_change_password", sa.Boolean(), nullable=False,
                                    server_default="0"))
@@ -162,6 +168,12 @@ def downgrade():
                                existing_nullable=False)
         batch.drop_column("last_seen")
         batch.drop_column("must_change_password")
+    if bind.dialect.name == "mysql" and \
+            BRANCH_FK_INDEX not in _index_names("appointment_requests"):
+        # On MySQL the composite index is the only one backing the branch_id
+        # foreign key (MySQL drops its own auto-created index once a covering
+        # one exists), so give the FK its own index before dropping it.
+        op.create_index(BRANCH_FK_INDEX, "appointment_requests", ["branch_id"])
     with op.batch_alter_table("appointment_requests") as batch:
         batch.drop_index("ix_appointments_branch_status")
         batch.drop_constraint("fk_appointment_requests_handled_by", type_="foreignkey")
