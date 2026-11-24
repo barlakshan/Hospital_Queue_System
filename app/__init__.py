@@ -332,6 +332,40 @@ def register_cli(app):
         db.session.commit()
         click.echo(f"Admin user '{name}' ({email}) created successfully.")
 
+    @app.cli.command("reset-password")
+    @click.option("--email",    prompt="Email")
+    @click.option("--password", prompt="New password", hide_input=True, confirmation_prompt=True)
+    def reset_password(email, password):
+        """Set a user's password and re-activate the account (server access only)."""
+        from app.models import User
+        from app.utils.validators import validate_password
+        from app.services.audit_service import AuditService
+        email = email.strip().lower()
+        error = validate_password(password)
+        if error:
+            raise click.ClickException(error)
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            raise click.ClickException(f"No user with email {email}.")
+        user.set_password(password)
+        user.is_active = True
+        user.must_change_password = False
+        db.session.commit()
+        AuditService.log(user_id=user.id, action="password_reset_cli",
+                         payload={"email": email})
+        click.echo(f"Password reset for {user.full_name} ({email}, {user.role.value}).")
+
+    @app.cli.command("list-admins")
+    def list_admins():
+        """List admin accounts, to find the email to reset."""
+        from app.models import User, UserRole
+        admins = User.query.filter_by(role=UserRole.ADMIN).order_by(User.id).all()
+        if not admins:
+            click.echo("No admin accounts. Run `flask create-admin`.")
+        for u in admins:
+            state = "active" if u.is_active else "INACTIVE"
+            click.echo(f"{u.email}\t{u.full_name}\t{state}")
+
     @app.cli.command("reset-queue")
     @click.option("--branch", default=None, help="Branch code (omit for all)")
     @click.option("--confirm", is_flag=True, help="Confirm deleting today's tokens.")

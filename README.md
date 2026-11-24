@@ -155,6 +155,8 @@ Patients can also open `/appointments/` to request an appointment for an active 
 
 - `flask seed-db` — initialize schema when needed and seed hospital services
 - `flask create-admin` — create the first system administrator
+- `flask list-admins` — list admin accounts and whether they are active
+- `flask reset-password` — set a user's password and re-activate the account (run on the server)
 - `flask reset-queue --branch CODE --confirm` — delete today's queue tokens for a location (testing only)
 - `flask close-day` — mark earlier days' waiting tokens skipped and open ones no-show (run daily after midnight)
 - `flask retry-sms` — re-send SMS that failed in the last 10 minutes (run every few minutes)
