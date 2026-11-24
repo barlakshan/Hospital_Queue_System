@@ -97,7 +97,8 @@
       <i class="ti ti-bell-ringing" style="font-size:28px;color:#1B6117;margin-bottom:6px;display:block;"></i>
       <div class="called-big" id="call-token">{{ token_number }}</div>
       <div class="called-sub">Please proceed to</div>
-      <div class="called-counter" id="call-counter">Counter —</div>
+      <div class="called-counter" id="call-department">{{ service_name }}</div>
+      <div style="font-size:12px;color:#3d6e00;margin-top:2px;" id="call-location">{{ branch_name }}</div>
       <div style="font-size:11px;color:#4a8000;margin-top:4px;" id="call-officer"></div>
     </div>
 
@@ -191,7 +192,11 @@
       document.getElementById('called-alert').style.display = 'block';
       document.getElementById('status-badge').textContent = 'Called!';
       document.getElementById('status-badge').className = 'pb-badge red';
-      if (data.counter) document.getElementById('call-counter').textContent = data.counter;
+      if (data.service) document.getElementById('call-department').textContent = data.service;
+      if (data.counter) {
+        document.getElementById('call-location').textContent =
+          (data.branch ? data.branch + ' · ' : '') + data.counter;
+      }
       if (data.officer) {
         const officerEl = document.getElementById('call-officer');
         officerEl.textContent = ' Staff: ' + data.officer;

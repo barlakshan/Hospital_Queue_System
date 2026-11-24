@@ -125,7 +125,17 @@ def test_call_notification_sms():
     with app.app_context():
         msg = SmsService.build_call_notification(token)
     assert "Queue No: G005" in msg
-    assert "Please proceed to Room 3 (Dr. Silva)." in msg
+    assert "Please proceed to General OPD (Room 3)." in msg
+    assert "Staff: Dr. Silva" in msg
+
+
+def test_call_notification_without_counter_names_the_department():
+    app = create_app("testing")
+    with app.app_context():
+        msg = SmsService.build_call_notification(_fake_token(wait=0))
+    assert "Please proceed to General OPD.\n" in msg
+    assert "counter" not in msg.lower()
+    assert "Staff:" not in msg
     assert msg.isascii()
 
 
