@@ -19,42 +19,128 @@ class SmsService:
     in sms_logs. `flask retry-sms` (run from cron) re-sends recent failures.
     """
 
+    KNOWN_PROVIDERS = ("mock", "textlk", "dialog", "mobitel", "twilio")
+
+    # Plain GSM-7 characters only (no emojis, curly quotes or long dashes):
+    # a single non-GSM character switches the whole SMS to Unicode, which
+    # cuts each segment from 160 to 70 characters and multiplies the cost.
+    BRAND = "Melsta Hospitals"
     TEMPLATES = {
         "confirmation": (
-            "Your Melsta Hospitals patient token is {token}. "
-            "Service: {service}. Estimated wait: {wait} mins. "
-            "We will notify you when it is your turn."
+            "{brand}\n"
+            "Dear {name}, thank you for choosing us!\n"
+            "Queue No: {token}\n"
+            "Service: {service}\n"
+            "Location: {branch}\n"
+            "Date: {date}\n"
+            "Patients ahead: {ahead}\n"
+            "Your turn approx: {call_time}\n"
+            "{arrival}"
+            "{track}"
+            "{contact}"
+            "Your health, our priority."
         ),
+        "arrive_by": (
+            "Please reach the hospital by {arrive_by}, "
+            "at least {early} min before your turn.\n"
+        ),
+        "arrive_now": (
+            "Your turn is near. Please reach the hospital now "
+            "(at least {early} min before your turn).\n"
+        ),
+        "track":   "Live status: {url}\n",
+        "contact": "Help: {phone}\n",
         "call_notification": (
-            "Melsta Hospitals: Patient token {token} - Please proceed to {counter}. "
-            "Staff: {officer}. Location: {branch}."
+            "{brand}\n"
+            "Dear {name}, it is your turn now!\n"
+            "Queue No: {token}\n"
+            "Please proceed to {counter}{officer}.\n"
+            "Location: {branch}\n"
+            "Thank you for your patience."
         ),
     }
 
+    @staticmethod
+    def _clock(dt):
+        """'9:05 AM' style local time."""
+        return dt.strftime("%I:%M %p").lstrip("0")
+
+    @staticmethod
+    def _token_url(token):
+        """Public live-status page for the token, or "" if no public URL is known."""
+        from flask import has_request_context, url_for
+        base = (current_app.config.get("BASE_URL") or "").rstrip("/")
+        path = f"/register/token/{token.public_ref}"
+        if base:
+            return base + path
+        if has_request_context():
+            return url_for("customer.token_page", token_ref=token.public_ref, _external=True)
+        return ""
+
     @classmethod
-    def send_confirmation(cls, token):
-        message = cls.TEMPLATES["confirmation"].format(
+    def build_confirmation(cls, token, position=None, now=None):
+        """Registration SMS: queue number, visit details and the time the
+        patient must be at the hospital (SMS_ARRIVE_EARLY_MIN before their
+        estimated turn)."""
+        from datetime import timedelta
+        from app.services.queue_service import QueueService
+        from app.utils.timeutil import local_now, to_local
+
+        now = to_local(now) if now else local_now()
+        if position is None:
+            position = QueueService.get_position(token)
+        wait = token.estimated_wait_min or 0
+        early = int(current_app.config.get("SMS_ARRIVE_EARLY_MIN", 20))
+        call_at = now + timedelta(minutes=wait)
+        arrive_by = call_at - timedelta(minutes=early)
+
+        if arrive_by > now:
+            arrival = cls.TEMPLATES["arrive_by"].format(
+                arrive_by=cls._clock(arrive_by), early=early)
+        else:
+            arrival = cls.TEMPLATES["arrive_now"].format(early=early)
+
+        url = cls._token_url(token)
+        phone = (token.branch.phone or "").strip()
+        return cls.TEMPLATES["confirmation"].format(
+            brand=cls.BRAND,
+            name=token.display_name or "Patient",
             token=token.token_number,
             service=token.service_type.name,
-            wait=token.estimated_wait_min,
+            branch=token.branch.name,
+            date=now.strftime("%d %b %Y"),
+            ahead=position,
+            call_time=cls._clock(call_at),
+            arrival=arrival,
+            track=cls.TEMPLATES["track"].format(url=url) if url else "",
+            contact=cls.TEMPLATES["contact"].format(phone=phone) if phone else "",
         )
+
+    @classmethod
+    def build_call_notification(cls, token):
+        counter = token.counter.label if token.counter else "the counter"
+        officer = token.served_by_officer.full_name if token.served_by_officer else ""
+        return cls.TEMPLATES["call_notification"].format(
+            brand=cls.BRAND,
+            name=token.display_name or "Patient",
+            token=token.token_number,
+            counter=counter,
+            officer=f" ({officer})" if officer else "",
+            branch=token.branch.name,
+        )
+
+    @classmethod
+    def send_confirmation(cls, token):
         cls._send_async(
             mobile=token.customer.mobile,
-            message=message,
+            message=cls.build_confirmation(token),
             token_id=token.id,
             sms_type="confirmation",
         )
 
     @classmethod
     def send_call_notification(cls, token):
-        counter = token.counter.label if token.counter else "Counter"
-        officer = token.served_by_officer.full_name if token.served_by_officer else ""
-        message = cls.TEMPLATES["call_notification"].format(
-            token=token.token_number,
-            counter=counter,
-            officer=officer,
-            branch=token.branch.name,
-        )
+        message = cls.build_call_notification(token)
         cls._send_async(
             mobile=token.customer.mobile,
             message=message,
@@ -148,13 +234,17 @@ class SmsService:
             return cls._textlk(mobile, message)
         elif provider == "twilio":
             return cls._twilio(mobile, message)
+        elif provider != "mock":
+            # A typo in SMS_PROVIDER must not silently stop all SMS.
+            raise RuntimeError(f"Unknown SMS_PROVIDER {provider!r}")
         else:
             # Message bodies contain patient details: only log them in
             # development.
             if current_app.debug:
                 logger.info("[SMS MOCK] To:%s | %s", mask_mobile(mobile), message)
             else:
-                logger.info("[SMS MOCK] To:%s", mask_mobile(mobile))
+                logger.warning("[SMS MOCK] SMS_PROVIDER is mock: nothing sent to %s",
+                               mask_mobile(mobile))
             return {"status": "sent", "message_id": "mock-001"}
 
     @classmethod

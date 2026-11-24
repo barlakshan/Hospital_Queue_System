@@ -125,7 +125,14 @@ def _check_production_config(app):
         raise RuntimeError("SECRET_KEY must be set to a strong random value (32+ chars) in production")
     if not app.config.get("SQLALCHEMY_DATABASE_URI"):
         raise RuntimeError("DATABASE_URL must be set in production")
+    from app.services.sms_service import SmsService
     provider = app.config.get("SMS_PROVIDER")
+    if provider not in SmsService.KNOWN_PROVIDERS:
+        raise RuntimeError(
+            f"SMS_PROVIDER {provider!r} is not one of: {', '.join(SmsService.KNOWN_PROVIDERS)}")
+    if provider == "mock":
+        logger.warning("SMS_PROVIDER is mock: patients will NOT receive any SMS. "
+                       "Set SMS_PROVIDER=textlk (and TEXTLK_*) in .env.")
     if provider == "textlk" and not app.config.get("TEXTLK_API_TOKEN"):
         raise RuntimeError("SMS_PROVIDER is textlk but TEXTLK_API_TOKEN is not set")
     if provider == "textlk" and not os.environ.get("TEXTLK_SENDER_ID"):
@@ -154,6 +161,14 @@ def create_app(config_name=None, **overrides):
     app.config.from_object(config_by_name[config_name])
     app.config.update(overrides)
     app.config["CONFIG_NAME"] = config_name
+
+    # Without a handler only WARNING+ reaches stderr (and journalctl), so
+    # INFO lines such as "SMS sent" were invisible on the server.
+    if not app.testing and not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
 
     if config_name == "production":
         _check_production_config(app)
@@ -415,6 +430,28 @@ def register_cli(app):
         from app.services.sms_service import SmsService
         attempted, sent = SmsService.retry_failed(max_age_minutes=max_age)
         click.echo(f"Retried {attempted} failed SMS; {sent} sent.")
+
+    @app.cli.command("send-test-sms")
+    @click.argument("mobile")
+    def send_test_sms(mobile):
+        """Send one SMS now and print the gateway's answer (diagnostics)."""
+        from app.services.sms_service import SmsService
+        from app.utils.validators import mask_mobile, normalise_mobile
+        provider = app.config.get("SMS_PROVIDER")
+        click.echo(f"SMS_PROVIDER={provider}")
+        if provider == "textlk":
+            click.echo(f"TEXTLK_SENDER_ID={app.config.get('TEXTLK_SENDER_ID')}")
+            click.echo("TEXTLK_API_TOKEN is " +
+                       ("set" if app.config.get("TEXTLK_API_TOKEN") else "NOT set"))
+        if provider == "mock":
+            click.echo("Provider is mock: nothing will be sent. Set SMS_PROVIDER in .env.")
+        try:
+            number = normalise_mobile(mobile)
+            result = SmsService._dispatch(
+                number, f"{SmsService.BRAND}: SMS test message. Please ignore.")
+        except Exception as exc:
+            raise click.ClickException(f"SMS FAILED: {exc}")
+        click.echo(f"SMS accepted for {mask_mobile(number)}: {result}")
 
     @app.cli.command("purge-patients")
     @click.option("--older-than", "older_than", type=int, required=True,

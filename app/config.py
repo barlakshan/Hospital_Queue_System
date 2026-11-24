@@ -66,7 +66,10 @@ class BaseConfig:
     SMS_PROVIDER                   = _normalize_sms_provider(os.environ.get("SMS_PROVIDER", "mock"))
     # Send SMS in the request thread instead of a background thread (tests).
     SMS_SEND_INLINE                = False
-    DIALOG_USER                    = os.environ.get("DIALOG_USER", "")
+    # Patients are asked to be at the hospital this many minutes before
+    # their estimated turn.
+    SMS_ARRIVE_EARLY_MIN           = int(os.environ.get("SMS_ARRIVE_EARLY_MIN", "20"))
+    DIALOG_USER                   = os.environ.get("DIALOG_USER", "")
     DIALOG_PASS                    = os.environ.get("DIALOG_PASS", "")
     DIALOG_SENDER_ID               = os.environ.get("DIALOG_SENDER_ID", "MELSTAHOSP")
     MOBITEL_TOKEN                  = os.environ.get("MOBITEL_TOKEN", "")
