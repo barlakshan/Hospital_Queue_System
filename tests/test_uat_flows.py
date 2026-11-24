@@ -208,9 +208,16 @@ def test_registration_landing_and_qr_use_a_working_request_url(client):
     ):
         with client.application.app_context():
             branch = Branch.query.filter_by(code="COL").one()
-            assert branch.qr_payload() == "http://127.0.0.1:5000/register/COL"
+            assert branch.qr_payload() == "http://127.0.0.1:5000/register/col"
             client.application.config["BASE_URL"] = "https://hospital.example/"
-            assert branch.qr_payload() == "https://hospital.example/register/COL"
+            assert branch.qr_payload() == "https://hospital.example/register/col"
+            client.application.config["BASE_URL"] = "http://3.91.82.123"
+            assert branch.qr_payload() == "http://3.91.82.123/register/col"
+
+    # The lowercase QR link must open the same registration form.
+    lower = client.get("/register/col")
+    assert lower.status_code == 200
+    assert b"Patient Queue Registration" in lower.data
 
     with client.application.app_context():
         db.session.add(Branch(code="GAL", name="Galle", is_active=True))

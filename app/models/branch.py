@@ -24,7 +24,9 @@ class Branch(db.Model):
             base = current_app.config.get("BASE_URL") or request.url_root
         except RuntimeError:
             base = "http://localhost:5000"
-        return f"{base.rstrip('/')}/register/{self.code}"
+        # Lowercase path (e.g. /register/clb0001); the register route
+        # upper-cases the code before lookup, so this resolves the same branch.
+        return f"{base.rstrip('/')}/register/{self.code.lower()}"
 
     def __repr__(self):
         return f"<Branch {self.code}: {self.name}>"

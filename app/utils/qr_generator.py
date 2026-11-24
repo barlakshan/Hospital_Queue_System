@@ -1,7 +1,8 @@
+import hashlib
 import os
 import re
 import qrcode
-from flask import current_app
+from flask import current_app, url_for
 
 
 def generate_branch_qr(branch) -> str:
@@ -20,3 +21,13 @@ def generate_branch_qr(branch) -> str:
     path = os.path.join(qr_dir, f"{branch.code}.png")
     img.save(path)
     return path
+
+
+def branch_qr_image_url(branch) -> str:
+    """Static URL of the branch QR image, versioned by the URL it encodes.
+
+    nginx serves /static/ with a 30-day cache, so without the version a
+    browser keeps showing an old QR after BASE_URL (or the code) changes.
+    """
+    version = hashlib.sha256(branch.qr_payload().encode()).hexdigest()[:12]
+    return url_for("static", filename=f"qrcodes/{branch.code}.png", v=version)

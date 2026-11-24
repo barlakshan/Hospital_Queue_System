@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from app import create_app
@@ -95,6 +97,15 @@ def test_manager_can_open_branch_qr_page_for_own_branch(client):
     response = client.get("/manager/qr")
     assert response.status_code == 200
     assert b"Branch registration QR" in response.data
+    # The image URL is versioned by the encoded link, so changing BASE_URL
+    # yields a new URL that browsers and nginx cannot serve from cache.
+    old_src = re.search(rb'id="branch-qr" src="([^"]+)"', response.data).group(1)
+    assert b"/static/qrcodes/KUR.png?v=" in old_src
+
+    client.application.config["BASE_URL"] = "http://3.91.82.123"
+    new_src = re.search(rb'id="branch-qr" src="([^"]+)"',
+                        client.get("/manager/qr").data).group(1)
+    assert new_src != old_src
 
 
 def test_staff_member_can_open_branch_qr_page_for_assigned_branch(client):

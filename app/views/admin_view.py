@@ -474,14 +474,14 @@ def _user_form_service_ids(user):
 def branch_qr(branch_id):
     branch = db.get_or_404(Branch, branch_id)
     try:
-        from app.utils.qr_generator import generate_branch_qr
+        from app.utils.qr_generator import generate_branch_qr, branch_qr_image_url
         generate_branch_qr(branch)
     except Exception:
         pass
     return render_template(
         "admin/branch_qr.html",
         branch=branch,
-        qr_image_url=url_for("static", filename=f"qrcodes/{branch.code}.png"),
+        qr_image_url=branch_qr_image_url(branch),
     )
 
 

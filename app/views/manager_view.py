@@ -331,7 +331,7 @@ def branch_qr():
         return redirect(url_for("index"))
 
     try:
-        from app.utils.qr_generator import generate_branch_qr
+        from app.utils.qr_generator import generate_branch_qr, branch_qr_image_url
         generate_branch_qr(branch)
     except Exception:
         from flask import current_app
@@ -340,5 +340,5 @@ def branch_qr():
     return render_template(
         "manager/branch_qr.html",
         branch=branch,
-        qr_image_url=url_for("static", filename=f"qrcodes/{branch.code}.png"),
+        qr_image_url=branch_qr_image_url(branch),
     )
