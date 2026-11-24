@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Melsta Hospitals — Patient Flow{% endblock %}</title>
+  <title>{% block title %}Melsta Hospitals — Smart Queue Management{% endblock %}</title>
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
 
   <!-- Bootstrap 5 -->
@@ -24,7 +24,7 @@
     <div class="pb-navbar-logo">MH</div>
     <div>
       <div class="pb-navbar-name">Melsta Hospitals</div>
-      <div style="font-size:9px;color:rgba(255,255,255,.6);">Smart Queue &amp; Patient Flow</div>
+      <div style="font-size:9px;color:rgba(255,255,255,.6);">Smart Queue Management</div>
     </div>
   </a>
   <div class="pb-navbar-right">
@@ -160,6 +160,10 @@
   {% endwith %}
 
   {% block content %}{% endblock %}
+
+  <footer class="pb-footer">
+    Powered by <strong>Nexora Labs</strong> &nbsp;·&nbsp; &copy; 2026
+  </footer>
 </main>
 
 {% else %}

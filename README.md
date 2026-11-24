@@ -1,4 +1,4 @@
-# Melsta Hospitals — Smart Queue & Patient Flow Management
+# Melsta Hospitals — Smart Queue Management
 
 ## Overview
 

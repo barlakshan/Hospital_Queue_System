@@ -176,6 +176,15 @@ img { max-width: 100%; }
   font-weight: 600;
 }
 .pb-main { margin-left: 220px; padding: 20px 24px; }
+.pb-footer {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--pb-dark-mid);
+  text-align: center;
+  font-size: 11px;
+  color: #888;
+}
+.pb-footer strong { color: var(--pb-red); font-weight: 600; }
 
 /* ── 5. Page header ── */
 .pb-page-header {
