@@ -16,7 +16,7 @@ DOMAIN=${DOMAIN:-}
 CERTBOT_EMAIL=${CERTBOT_EMAIL:-}
 
 apt-get update
-apt-get install -y python3-pip python3-venv nginx git curl rsync build-essential pkg-config
+apt-get install -y python3-pip python3-venv nginx git curl rsync acl build-essential pkg-config
 
 if [ ! -d "$APP_DIR" ]; then
   git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
@@ -88,6 +88,12 @@ server {
     }
 }
 EOF
+
+# nginx (www-data) serves /static/ straight from the app directory. Ubuntu
+# creates home directories as 750, so grant www-data traverse-only access
+# (no listing) along the path; otherwise every static file returns 403.
+setfacl -m u:www-data:x /home/ubuntu "$APP_DIR"
+chmod -R o+rX "$APP_DIR/static"
 
 ln -sf /etc/nginx/sites-available/pbqms /etc/nginx/sites-enabled/pbqms
 rm -f /etc/nginx/sites-enabled/default
