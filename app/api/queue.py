@@ -297,7 +297,6 @@ def token_status(token_ref):
         "service":        token.service_type.name,
         "branch":         token.branch.name,
         "counter":        token.counter.label if token.counter else None,
-        "officer":        token.served_by_officer.full_name if token.served_by_officer else None,
         "called_at":      iso_local(token.called_at),
     })
 

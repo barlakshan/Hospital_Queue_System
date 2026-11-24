@@ -99,7 +99,10 @@
       <div class="called-sub">Please proceed to</div>
       <div class="called-counter" id="call-department">{{ service_name }}</div>
       <div style="font-size:12px;color:#3d6e00;margin-top:2px;" id="call-location">{{ branch_name }}</div>
-      <div style="font-size:11px;color:#4a8000;margin-top:4px;" id="call-officer"></div>
+      <div style="font-size:12px;color:#4a8000;margin-top:8px;">
+        <i class="ti ti-stethoscope"></i> Department &amp; Service:
+        <strong id="call-service">{{ service_name }}</strong>
+      </div>
     </div>
 
     <!-- Rating section (shown after service complete) -->
@@ -192,17 +195,13 @@
       document.getElementById('called-alert').style.display = 'block';
       document.getElementById('status-badge').textContent = 'Called!';
       document.getElementById('status-badge').className = 'pb-badge red';
-      if (data.service) document.getElementById('call-department').textContent = data.service;
+      if (data.service) {
+        document.getElementById('call-department').textContent = data.service;
+        document.getElementById('call-service').textContent = data.service;
+      }
       if (data.counter) {
         document.getElementById('call-location').textContent =
           (data.branch ? data.branch + ' · ' : '') + data.counter;
-      }
-      if (data.officer) {
-        const officerEl = document.getElementById('call-officer');
-        officerEl.textContent = ' Staff: ' + data.officer;
-        const icon = document.createElement('i');
-        icon.className = 'ti ti-user';
-        officerEl.prepend(icon);
       }
       // Keep polling (more slowly) so the rating form appears once the
       // visit is completed; ratings are only accepted for completed visits.

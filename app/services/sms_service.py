@@ -55,7 +55,6 @@ class SmsService:
             "Dear {name}, it is your turn now!\n"
             "Queue No: {token}\n"
             "Please proceed to {department}{counter}.\n"
-            "{officer}"
             "Location: {branch}\n"
             "Thank you for your patience."
         ),
@@ -120,14 +119,12 @@ class SmsService:
     @classmethod
     def build_call_notification(cls, token):
         counter = token.counter.label if token.counter else ""
-        officer = token.served_by_officer.full_name if token.served_by_officer else ""
         return cls.TEMPLATES["call_notification"].format(
             brand=cls.BRAND,
             name=token.display_name or "Patient",
             token=token.token_number,
             department=token.service_type.name,
             counter=f" ({counter})" if counter else "",
-            officer=f"Staff: {officer}\n" if officer else "",
             branch=token.branch.name,
         )
 
