@@ -37,6 +37,7 @@
         <td style="text-align:right;">
           <a href="{{ url_for('display.screen', branch_code=branch.code) }}" target="_blank" class="btn-pb-outline" style="padding:6px 10px;">Live screen</a>
           <a href="{{ url_for('admin_view.branch_qr', branch_id=branch.id) }}" class="btn-pb-outline" style="padding:6px 10px;margin-left:6px;">QR</a>
+          <a href="{{ url_for('manager_view.dashboard', branch_id=branch.id) }}" class="btn-pb-outline" style="padding:6px 10px;margin-left:6px;">Operations</a>
           <a href="/admin/branches/{{ branch.id }}/edit" class="btn-pb-outline" style="padding:6px 10px;margin-left:6px;">Edit</a>
           {% if branch.is_active %}
           <form action="/admin/branches/{{ branch.id }}/deactivate" method="POST" style="display:inline;">

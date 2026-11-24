@@ -3,18 +3,32 @@ from flask_login import login_required, current_user
 from app.api import manager_bp
 from app.models import (QueueToken, TokenStatus, UserRole, SatisfactionRating,
                           ServiceType, User, Counter)
-from app.utils.decorators import require_role
+from app.utils.decorators import audit_action, require_role
 from app.extensions import db
 from sqlalchemy import func
-from datetime import date, timedelta
+from datetime import timedelta
+from app.models import OPEN_STATUSES, Branch
+from app.utils.timeutil import local_today
+
+
+def _branch_id_or_error():
+    """Managers use their own location; admins must pass ?branch_id=."""
+    if current_user.role != UserRole.ADMIN:
+        return current_user.branch_id, None
+    branch_id = request.args.get("branch_id", type=int)
+    if not branch_id or not db.session.get(Branch, branch_id):
+        return None, (jsonify({"error": "branch_id query parameter is required for admins"}), 400)
+    return branch_id, None
 
 
 @manager_bp.get("/dashboard")
 @login_required
 @require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN)
 def dashboard():
-    today     = date.today()
-    branch_id = current_user.branch_id
+    today     = local_today()
+    branch_id, error = _branch_id_or_error()
+    if error:
+        return error
     total     = QueueToken.query.filter_by(branch_id=branch_id, queue_date=today).count()
     done      = QueueToken.query.filter_by(branch_id=branch_id, queue_date=today,
                                             status=TokenStatus.COMPLETED).count()
@@ -35,8 +49,10 @@ def dashboard():
 @login_required
 @require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN)
 def analytics_today():
-    today     = date.today()
-    branch_id = current_user.branch_id
+    today     = local_today()
+    branch_id, error = _branch_id_or_error()
+    if error:
+        return error
     by_service = (db.session.query(ServiceType.name, ServiceType.code,
                                     func.count(QueueToken.id))
                   .join(QueueToken, QueueToken.service_type_id == ServiceType.id)
@@ -53,9 +69,11 @@ def analytics_today():
 @login_required
 @require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN)
 def analytics_range():
-    days      = request.args.get("days", 7, type=int)
-    branch_id = current_user.branch_id
-    today     = date.today()
+    days      = min(max(request.args.get("days", 7, type=int), 1), 90)
+    branch_id, error = _branch_id_or_error()
+    if error:
+        return error
+    today     = local_today()
     result    = []
     for i in range(days - 1, -1, -1):
         d   = today - timedelta(days=i)
@@ -68,8 +86,10 @@ def analytics_range():
 @login_required
 @require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN)
 def officer_performance():
-    today     = date.today()
-    branch_id = current_user.branch_id
+    today     = local_today()
+    branch_id, error = _branch_id_or_error()
+    if error:
+        return error
     rows = (db.session.query(User,
                 func.count(QueueToken.id).label("served"),
                 func.avg(SatisfactionRating.rating).label("avg_rating"))
@@ -88,10 +108,18 @@ def officer_performance():
 @manager_bp.post("/token/<int:token_id>/transfer")
 @login_required
 @require_role(UserRole.BRANCH_MANAGER)
+@audit_action("transfer_token")
 def transfer_token(token_id):
-    data    = request.get_json(force=True)
-    token   = QueueToken.query.get_or_404(token_id)
-    counter = Counter.query.get_or_404(data["counter_id"])
+    data    = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get("counter_id"), int):
+        return jsonify({"error": "counter_id (int) is required"}), 400
+    token   = db.get_or_404(QueueToken, token_id)
+    counter = db.get_or_404(Counter, data["counter_id"])
+    # A manager may only move tokens within their own branch.
+    if token.branch_id != current_user.branch_id or counter.branch_id != current_user.branch_id:
+        return jsonify({"error": "Access denied"}), 403
+    if token.status not in OPEN_STATUSES:
+        return jsonify({"error": f"Token is {token.status.value} and cannot be transferred"}), 409
     token.counter_id = counter.id
     db.session.commit()
     return jsonify({"message": f"Token {token.token_number} transferred to {counter.label}"})
@@ -102,7 +130,9 @@ def transfer_token(token_id):
 @require_role(UserRole.BRANCH_MANAGER, UserRole.ADMIN)
 def branch_customers():
     from app.models import Customer
-    branch_id = current_user.branch_id
+    branch_id, error = _branch_id_or_error()
+    if error:
+        return error
     page  = request.args.get("page", 1, type=int)
     rows  = (db.session.query(Customer, func.count(QueueToken.id).label("visits"))
              .join(QueueToken, QueueToken.customer_id == Customer.id)

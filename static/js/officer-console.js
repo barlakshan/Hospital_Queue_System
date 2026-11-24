@@ -6,12 +6,24 @@
 const OfficerConsole = (() => {
   let socket = null;
   let currentCounterId = null;
+  let currentTokenId = null;
+
+  /* Escape untrusted text (customer names are public input) before it is
+     interpolated into innerHTML templates. */
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[ch]));
+  }
 
   /* ── Bootstrap ── */
-  function init(counterId, branchId) {
+  function init(counterId, branchId, currentToken) {
     currentCounterId = counterId;
     connectSocket(branchId);
     bindButtons();
+    // Resume the patient already called by this staff member (page reload,
+    // second tab) so they can complete it before calling the next one.
+    if (currentToken) renderServing(currentToken);
     loadWaitingQueue();
     startHeartbeat();
   }
@@ -37,10 +49,10 @@ const OfficerConsole = (() => {
       refreshQueue();
     });
 
+    // Sent only to this staff member's own room: a call made from another
+    // tab or device of the same account.
     socket.on('token_called', (data) => {
-      if (data.counter_id === currentCounterId) {
-        renderServing(data);
-      }
+      if (data && data.token_id !== currentTokenId) renderServing(data);
     });
   }
 
@@ -74,6 +86,19 @@ const OfficerConsole = (() => {
     });
   }
 
+  /* ── Start consultation ── */
+  function startService(tokenId) {
+    fetch(`/api/queue/token/${Number(tokenId)}/start`, { method: 'POST' })
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to start consultation');
+      showToast('Consultation started', 'success');
+      const startBtn = document.getElementById('btn-start-service');
+      if (startBtn) startBtn.remove();
+    })
+    .catch(error => showToast(error.message || 'Network error — try again', 'error'));
+  }
+
   /* ── Complete service ── */
   function completeService(tokenId) {
     const summaryInput = document.getElementById(`condition-summary-${tokenId}`);
@@ -83,14 +108,14 @@ const OfficerConsole = (() => {
       if (summaryInput) summaryInput.focus();
       return;
     }
-    fetch(`/api/queue/token/${tokenId}/complete`, {
+    fetch(`/api/queue/token/${Number(tokenId)}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ condition_summary: conditionSummary }),
     })
-    .then(r => r.json())
-    .then(data => {
-      if (!data || !data.message) throw new Error(data?.error || 'Unable to complete service');
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to complete service');
       showToast('Service completed', 'success');
       clearServing();
       refreshQueue();
@@ -100,10 +125,10 @@ const OfficerConsole = (() => {
 
   /* ── Mark no-show ── */
   function markNoShow(tokenId) {
-    fetch(`/api/queue/token/${tokenId}/no-show`, { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      if (!data || !data.message) throw new Error(data?.error || 'Unable to mark no-show');
+    fetch(`/api/queue/token/${Number(tokenId)}/no-show`, { method: 'POST' })
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to mark no-show');
       showToast('Marked as no-show', 'warning');
       clearServing();
       refreshQueue();
@@ -111,18 +136,20 @@ const OfficerConsole = (() => {
     .catch(error => showToast(error.message || 'Network error — try again', 'error'));
   }
 
-  /* ── Priority upgrade ── */
+  /* ── Priority: confirm a patient's request, or decline it (NONE) ── */
   function setPriority(tokenId, reason) {
-    fetch(`/api/queue/token/${tokenId}/priority`, {
+    fetch(`/api/queue/token/${Number(tokenId)}/priority`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ priority_reason: reason }),
     })
-    .then(r => r.json())
-    .then(() => {
-      showToast('Priority set', 'success');
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Unable to change priority');
+      showToast(data.message || 'Priority updated', 'success');
       refreshQueue();
-    });
+    })
+    .catch(error => showToast(error.message || 'Network error — try again', 'error'));
   }
 
   /* ── Load waiting queue ── */
@@ -160,44 +187,51 @@ const OfficerConsole = (() => {
   function renderServing(data) {
     const el = document.getElementById('serving-section');
     if (!el) return;
+    currentTokenId = Number(data.token_id);
+    const startButton = data.status === 'called'
+      ? `<button id="btn-start-service" class="btn-pb-primary w-100 mb-2" onclick="OfficerConsole.startService(${Number(data.token_id)})">
+           <i class="ti ti-player-play"></i> Start consultation
+         </button>`
+      : '';
     el.innerHTML = `
       <div class="pb-ticket mb-3">
-        <div class="pb-ticket-service">${data.service}</div>
-        <div class="pb-ticket-number">${data.token_number}</div>
+        <div class="pb-ticket-service">${esc(data.service)}</div>
+        <div class="pb-ticket-number">${esc(data.token_number)}</div>
         <div class="pb-ticket-meta">
           <div class="pb-ticket-meta-box">
-            <div class="pb-ticket-meta-val">${data.customer_name.split(' ')[0]}</div>
+            <div class="pb-ticket-meta-val">${esc(String(data.customer_name || '').split(' ')[0])}</div>
             <div class="pb-ticket-meta-lbl">Customer</div>
           </div>
           <div class="pb-ticket-meta-box">
-            <div class="pb-ticket-meta-val">${data.counter || '—'}</div>
+            <div class="pb-ticket-meta-val">${esc(data.counter || '—')}</div>
             <div class="pb-ticket-meta-lbl">Counter</div>
           </div>
           ${data.is_priority ? `<div class="pb-ticket-meta-box" style="background:rgba(255,203,71,.25);">
-            <div class="pb-ticket-meta-val" style="font-size:12px;">★ ${data.priority_reason}</div>
+            <div class="pb-ticket-meta-val" style="font-size:12px;">★ ${esc(data.priority_reason)}</div>
             <div class="pb-ticket-meta-lbl">Priority</div>
           </div>` : ''}
         </div>
       </div>
       <div class="mb-3">
-        <label for="condition-summary-${data.token_id}" class="pb-form-label">
+        <label for="condition-summary-${Number(data.token_id)}" class="pb-form-label">
           Brief condition summary
         </label>
-        <textarea id="condition-summary-${data.token_id}"
+        <textarea id="condition-summary-${Number(data.token_id)}"
                   class="pb-form-control" rows="3" maxlength="500"
                   placeholder="Record the patient's condition before completing the appointment"></textarea>
       </div>
-      <button class="btn-pb-success w-100 mb-2" onclick="OfficerConsole.completeService(${data.token_id})">
+      ${startButton}
+      <button class="btn-pb-success w-100 mb-2" onclick="OfficerConsole.completeService(${Number(data.token_id)})">
         <i class="ti ti-check"></i> Mark complete
       </button>
-      <button class="btn-pb-outline w-100" onclick="OfficerConsole.markNoShow(${data.token_id})">
+      <button class="btn-pb-outline w-100" onclick="OfficerConsole.markNoShow(${Number(data.token_id)})">
         <i class="ti ti-user-off"></i> No-show
       </button>
     `;
     // Voice announcement if priority
     if (data.is_priority && 'speechSynthesis' in window) {
       const msg = new SpeechSynthesisUtterance(
-        `Token ${data.token_number.split('').join(' ')}, ${data.customer_name}, please proceed to ${data.counter}. Priority customer.`
+        `Token ${String(data.token_number).split('').join(' ')}, please proceed to ${data.counter || 'the counter'}. Priority patient.`
       );
       msg.lang = 'en-US';
       window.speechSynthesis.speak(msg);
@@ -205,6 +239,7 @@ const OfficerConsole = (() => {
   }
 
   function clearServing() {
+    currentTokenId = null;
     const el = document.getElementById('serving-section');
     if (el) el.innerHTML = `
       <div class="text-center py-4 text-muted">
@@ -227,16 +262,20 @@ const OfficerConsole = (() => {
       return;
     }
 
-    el.innerHTML = tokens.map((t, i) => `
-      <div class="pb-queue-item ${t.is_priority ? 'priority just-added' : ''}" data-id="${t.id}">
-        <div class="pb-queue-token">${t.token_number}</div>
+    el.innerHTML = tokens.map(t => `
+      <div class="pb-queue-item ${t.is_priority ? 'priority just-added' : ''}" data-id="${Number(t.id)}">
+        <div class="pb-queue-token">${esc(t.token_number)}</div>
         <div class="pb-queue-info">
-          <div class="pb-queue-name">${t.customer_name}</div>
-          <div class="pb-queue-svc">${t.service}</div>
+          <div class="pb-queue-name">${esc(t.customer_name)}</div>
+          <div class="pb-queue-svc">${esc(t.service)}</div>
         </div>
         ${t.is_priority
-          ? `<span class="pb-priority-badge">★ ${t.priority_reason}</span>`
-          : `<span style="font-size:11px;color:#aaa;">~${(i + 1) * 8}m</span>`
+          ? `<span class="pb-priority-badge">★ ${esc(t.priority_reason)}</span>`
+          : t.priority_requested
+            ? `<span class="pb-priority-badge" style="opacity:.7;" title="Requested by patient">? ${esc(t.priority_requested)}</span>
+               <button class="btn-pb-outline" style="padding:1px 6px;font-size:11px;" onclick="OfficerConsole.setPriority(${Number(t.id)}, '${esc(String(t.priority_requested).toUpperCase())}')">Confirm</button>
+               <button class="btn-pb-outline" style="padding:1px 6px;font-size:11px;" onclick="OfficerConsole.setPriority(${Number(t.id)}, 'NONE')">Decline</button>`
+            : `<span style="font-size:11px;color:#aaa;">~${Number(t.estimated_wait) || 0}m</span>`
         }
       </div>
     `).join('');
@@ -299,5 +338,5 @@ const OfficerConsole = (() => {
     setInterval(loadWaitingQueue, 30000);
   }
 
-  return { init, callNext, completeService, markNoShow, setPriority };
+  return { init, callNext, startService, completeService, markNoShow, setPriority };
 })();

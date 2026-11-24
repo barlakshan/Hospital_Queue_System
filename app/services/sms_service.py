@@ -1,7 +1,11 @@
-import requests
-import threading
 import logging
+import threading
+import time
+
+import requests
 from flask import current_app
+
+from app.utils.validators import mask_mobile, normalise_mobile
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +13,10 @@ logger = logging.getLogger(__name__)
 class SmsService:
     """
     SMS abstraction layer.
-    Set SMS_PROVIDER in .env:  mock | dialog | mobitel | twilio
+    Set SMS_PROVIDER in .env:  mock | textlk | dialog | mobitel | twilio
+
+    Messages are sent from a background thread and every attempt is recorded
+    in sms_logs. `flask retry-sms` (run from cron) re-sends recent failures.
     """
 
     TEMPLATES = {
@@ -57,39 +64,26 @@ class SmsService:
 
     @classmethod
     def _send_async(cls, mobile, message, token_id, sms_type):
-        """
-        Try Celery first; fall back to a daemon thread if Celery not available.
-        """
-        celery_used = False
+        """Send from a daemon thread so the request never waits on the gateway."""
+        app = current_app._get_current_object()
+        if app.config.get("SMS_SEND_INLINE"):
+            cls._thread_send(app, mobile, message, token_id, sms_type)
+            return
         try:
-            from app.tasks.sms_tasks import send_sms_async
-            send_sms_async.delay(mobile=mobile, message=message,
-                                  token_id=token_id, sms_type=sms_type)
-            celery_used = True
-            logger.debug(f"SMS queued via Celery for {mobile}")
-        except Exception as celery_err:
-            # Celery not running or error — use background thread
-            logger.warning(f"Celery unavailable ({celery_err}), falling back to threading for SMS")
-            try:
-                app = current_app._get_current_object()
-                t = threading.Thread(
-                    target=cls._thread_send,
-                    args=(app, mobile, message, token_id, sms_type),
-                    daemon=True,
-                )
-                t.start()
-                logger.debug(f"SMS queued via thread for {mobile}")
-            except Exception as thread_err:
-                logger.error(f"Failed to queue SMS via both Celery and thread: {thread_err}")
+            threading.Thread(
+                target=cls._thread_send,
+                args=(app, mobile, message, token_id, sms_type),
+                daemon=True,
+            ).start()
+        except Exception:
+            logger.exception("Failed to start SMS thread for token %s", token_id)
 
     @classmethod
     def _thread_send(cls, app, mobile, message, token_id, sms_type):
         with app.app_context():
             from app.extensions import db
             from app.models import SmsLog, SmsType, SmsStatus
-            from datetime import datetime, timezone
-            
-            # Create log entry first
+
             log = SmsLog(
                 token_id=token_id,
                 sms_type=SmsType[sms_type.upper()],
@@ -99,50 +93,52 @@ class SmsService:
             )
             db.session.add(log)
             db.session.commit()
-            
+            cls._attempt(log)
+            db.session.remove()
+
+    @classmethod
+    def _attempt(cls, log):
+        """Dispatch one SmsLog row and record the outcome."""
+        from app.extensions import db
+        from app.models import SmsStatus
+        from app.utils.timeutil import utcnow
+
+        try:
+            result = cls._dispatch(log.mobile, log.message)
+            log.status              = SmsStatus.SENT
+            log.provider_message_id = str(result.get("message_id", ""))[:80]
+            log.sent_at             = utcnow()
+            logger.info("SMS sent to %s type=%s id=%s",
+                        mask_mobile(log.mobile), log.sms_type.value, log.provider_message_id)
+        except Exception as exc:
+            log.status = SmsStatus.FAILED
+            logger.error("SMS send failed to %s type=%s: %s",
+                         mask_mobile(log.mobile), log.sms_type.value, exc)
+        finally:
             try:
-                result = cls._dispatch(mobile, message)
-                log.status              = SmsStatus.SENT
-                log.provider_message_id = result.get("message_id", "")
-                log.sent_at             = datetime.now(timezone.utc)
-                logger.info(f"SMS sent to {mobile} | type={sms_type} | id={result.get('message_id')}")
-            except Exception as e:
-                log.status = SmsStatus.FAILED
-                logger.error(f"SMS send failed to {mobile}: {e}", exc_info=True)
-            finally:
-                try:
-                    db.session.commit()
-                except Exception as db_err:
-                    logger.error(f"Failed to update SMS log: {db_err}")
-                    db.session.rollback()
+                db.session.commit()
+            except Exception:
+                logger.exception("Failed to update SMS log %s", log.id)
+                db.session.rollback()
+        return log.status
 
-    @staticmethod
-    def _normalize_provider(provider: str | None) -> str:
-        if not provider:
-            return "mock"
+    @classmethod
+    def retry_failed(cls, max_age_minutes=10):
+        """Re-send FAILED messages created in the last `max_age_minutes`."""
+        from datetime import timedelta
+        from app.models import SmsLog, SmsStatus
+        from app.utils.timeutil import utcnow
 
-        provider = str(provider).strip().lower()
-        if provider.startswith(("http://", "https://")):
-            if "text.lk" in provider or "textlk" in provider:
-                return "textlk"
-            if "dialog" in provider:
-                return "dialog"
-            if "mobitel" in provider:
-                return "mobitel"
-            if "twilio" in provider:
-                return "twilio"
-            return "mock"
-
-        if provider in {"textlk", "text.lk", "text-lk", "text_lk", "text"}:
-            return "textlk"
-        if provider in {"mock", "none", "off", "disabled"}:
-            return "mock"
-
-        return provider
+        cutoff = (utcnow() - timedelta(minutes=max_age_minutes)).replace(tzinfo=None)
+        failed = (SmsLog.query
+                  .filter(SmsLog.status == SmsStatus.FAILED, SmsLog.created_at >= cutoff)
+                  .order_by(SmsLog.id).all())
+        sent = sum(1 for log in failed if cls._attempt(log) == SmsStatus.SENT)
+        return len(failed), sent
 
     @classmethod
     def _dispatch(cls, mobile: str, message: str) -> dict:
-        provider = cls._normalize_provider(current_app.config.get("SMS_PROVIDER", "mock"))
+        provider = current_app.config.get("SMS_PROVIDER", "mock")
 
         if provider == "dialog":
             return cls._dialog(mobile, message)
@@ -153,12 +149,16 @@ class SmsService:
         elif provider == "twilio":
             return cls._twilio(mobile, message)
         else:
-            logger.info(f"[SMS MOCK] To:{mobile} | {message}")
+            # Message bodies contain patient details: only log them in
+            # development.
+            if current_app.debug:
+                logger.info("[SMS MOCK] To:%s | %s", mask_mobile(mobile), message)
+            else:
+                logger.info("[SMS MOCK] To:%s", mask_mobile(mobile))
             return {"status": "sent", "message_id": "mock-001"}
 
     @classmethod
     def _dialog(cls, mobile: str, message: str) -> dict:
-        # Normalise: remove + prefix for Dialog API
         m = mobile.replace("+", "").replace(" ", "")
         resp = requests.post(
             "https://sms.dialog.lk/api/send",
@@ -205,7 +205,7 @@ class SmsService:
 
         sender = current_app.config.get("TEXTLK_SENDER_ID", "MELSTAHOSP")
 
-        # Normalise recipient to format like 94771234567 (no +)
+        # Text.lk expects 94771234567 (no +)
         recipient = mobile.replace("+", "").replace(" ", "").replace("-", "")
         if recipient.startswith("0"):
             recipient = "94" + recipient[1:]
@@ -226,56 +226,33 @@ class SmsService:
                 },
                 timeout=10,
             )
-            
-            logger.debug(f"Text.lk API response status: {resp.status_code}")
-            
-            # Handle HTTP errors
-            if resp.status_code >= 400:
-                resp_text = resp.text[:200]  # Log first 200 chars of response
-                logger.error(f"Text.lk API error {resp.status_code}: {resp_text}")
-                resp.raise_for_status()
-            
-            data = resp.json()
-            logger.debug(f"Text.lk API response: {data}")
-            
-            # Try to extract a sensible message id from the API response
-            message_id = ""
-            status = "unknown"
-            
-            if isinstance(data, dict):
-                # Check for success status
-                status = data.get("status", data.get("code", "unknown"))
-                
-                # Common response formats from Text.lk
-                if status == "success" or status == "200" or status == 200:
-                    # Try to extract message_id from nested data
-                    d = data.get("data")
-                    if isinstance(d, dict):
-                        message_id = d.get("uid") or d.get("id") or d.get("message_id") or str(d)
-                    elif isinstance(d, str):
-                        message_id = d
-                    else:
-                        # Fallback: use entire response as string
-                        message_id = str(data.get("message_id", ""))
-                    
-                    # If still no message_id, try top-level fields
-                    if not message_id:
-                        message_id = data.get("message_id") or data.get("uid") or data.get("id") or ""
-                    
-                    if not message_id:
-                        # Last resort: generate from timestamp
-                        message_id = f"textlk-{int(__import__('time').time() * 1000)}"
-                else:
-                    # API returned error status
-                    error_msg = data.get("message", data.get("error", str(data)))
-                    logger.error(f"Text.lk API returned error status: {status} - {error_msg}")
-                    raise RuntimeError(f"Text.lk API error: {error_msg}")
-
-            return {"status": str(status), "message_id": message_id}
-        
         except requests.exceptions.RequestException as e:
-            logger.error(f"Text.lk API request failed: {e}")
-            raise RuntimeError(f"Text.lk API request failed: {e}")
+            raise RuntimeError(f"Text.lk API request failed: {e.__class__.__name__}") from e
+
+        logger.debug("Text.lk API response status: %s", resp.status_code)
+        if resp.status_code >= 400:
+            logger.error("Text.lk API error %s: %s", resp.status_code, resp.text[:200])
+            raise RuntimeError(f"Text.lk API HTTP {resp.status_code}")
+
+        data = resp.json()
+        message_id = ""
+        status = "unknown"
+        if isinstance(data, dict):
+            status = data.get("status", data.get("code", "unknown"))
+            if status in ("success", "200", 200):
+                d = data.get("data")
+                if isinstance(d, dict):
+                    message_id = d.get("uid") or d.get("id") or d.get("message_id") or ""
+                elif isinstance(d, str):
+                    message_id = d
+                if not message_id:
+                    message_id = (data.get("message_id") or data.get("uid")
+                                  or data.get("id") or f"textlk-{int(time.time() * 1000)}")
+            else:
+                error_msg = data.get("message", data.get("error", "unknown error"))
+                raise RuntimeError(f"Text.lk API error: {error_msg}")
+
+        return {"status": str(status), "message_id": message_id}
 
     @classmethod
     def _twilio(cls, mobile: str, message: str) -> dict:
@@ -291,12 +268,5 @@ class SmsService:
         )
         return {"message_id": msg.sid}
 
-    @staticmethod
-    def normalise_mobile(mobile: str) -> str:
-        """Ensure international format: +94771234567"""
-        m = mobile.replace(" ", "").replace("-", "")
-        if m.startswith("0"):
-            return "+94" + m[1:]
-        if not m.startswith("+"):
-            return "+" + m
-        return m
+    # Kept as an alias: callers historically used SmsService.normalise_mobile.
+    normalise_mobile = staticmethod(normalise_mobile)

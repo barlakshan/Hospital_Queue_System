@@ -19,7 +19,7 @@
     <div class="pb-stat-icon red"><i class="ti ti-ticket"></i></div>
     <div class="pb-stat-value">{{ stats.total }}</div>
     <div class="pb-stat-label">Total today</div>
-    <div class="pb-stat-delta up">↑ {{ stats.delta_pct }}% vs avg</div>
+    <div class="pb-stat-delta {{ 'up' if (stats.delta_pct or 0) >= 0 else 'down' }}">{% if stats.delta_pct is none %}— vs last week{% else %}{{ '↑' if stats.delta_pct >= 0 else '↓' }} {{ stats.delta_pct|abs }}% vs same day last week{% endif %}</div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon green"><i class="ti ti-circle-check"></i></div>
@@ -29,15 +29,15 @@
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon yellow"><i class="ti ti-clock"></i></div>
-    <div class="pb-stat-value">{{ stats.avg_wait }}m</div>
+    <div class="pb-stat-value">{{ stats.avg_wait ~ 'm' if stats.avg_wait is not none else '—' }}</div>
     <div class="pb-stat-label">Avg. wait time</div>
-    <div class="pb-stat-delta {{ 'up' if stats.avg_wait <= 20 else 'down' }}">
-      Target: 20m {{ '✓' if stats.avg_wait <= 20 else '↑ over' }}
+    <div class="pb-stat-delta {{ 'up' if (stats.avg_wait or 0) <= 20 else 'down' }}">
+      Target: 20m {% if stats.avg_wait is not none %}{{ '✓' if stats.avg_wait <= 20 else '↑ over' }}{% endif %}
     </div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon dark"><i class="ti ti-star"></i></div>
-    <div class="pb-stat-value">{{ stats.avg_rating }}★</div>
+    <div class="pb-stat-value">{{ stats.avg_rating ~ '★' if stats.avg_rating is not none else '—' }}</div>
     <div class="pb-stat-label">Satisfaction</div>
     <div class="pb-stat-delta up">{{ stats.rating_count }} ratings</div>
   </div>
@@ -77,7 +77,7 @@
           {% for t in priority_tokens %}
           <tr>
             <td><strong>{{ t.token_number }}</strong></td>
-            <td>{{ t.customer.full_name }}</td>
+            <td>{{ t.display_name }}</td>
             <td>
               <span class="pb-badge yellow">
                 <i class="ti ti-{{ 'user' if t.priority_reason.value == 'elderly' else 'heart' if t.priority_reason.value == 'pregnant' else 'wheelchair' }}"></i>
@@ -122,7 +122,7 @@
           </td>
           <td style="color:#888;font-size:12px;">{{ o.user.role.value.replace('_',' ').title() }}</td>
           <td><strong>{{ o.served }}</strong></td>
-          <td>{{ o.avg_time or '—' }}m</td>
+          <td>{{ o.avg_time ~ 'm' if o.avg_time is not none else '—' }}</td>
           <td style="color:var(--pb-yellow);">{% if o.avg_rating %}★ {{ o.avg_rating }}{% else %}—{% endif %}</td>
           <td><span class="pb-badge {{ 'green' if o.is_active else 'dark' }}">
             {% if o.is_active %}<span class="pb-online-dot"></span> Active{% else %}Offline{% endif %}
@@ -148,7 +148,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <script>
   // Service breakdown donut chart
   const ctx = document.getElementById('svc-chart').getContext('2d');

@@ -1,20 +1,25 @@
-from io import BytesIO
-
 from flask import render_template, request, redirect, url_for, flash, send_file
 from flask_login import login_required, current_user
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from app.views import admin_view_bp
 from app.models import (
-    ASSIGNABLE_ROLES, SERVICE_ROLES, AppointmentRequest, Branch, User, UserRole,
-    QueueToken, Customer, AuditLog, SatisfactionRating, ServiceType,
-    service_is_compatible_with_role,
+    ASSIGNABLE_ROLES, OPEN_STATUSES, SERVICE_ROLES, AppointmentRequest, AppointmentStatus,
+    Branch, User, UserRole, QueueToken, Customer, AuditLog, SatisfactionRating, ServiceType,
 )
+from app.services import metrics, user_service
+from app.services.audit_service import AuditService
+from app.services.user_service import UserInputError
 from app.utils.decorators import require_role, audit_action
+from app.utils.timeutil import local_today, to_local
+from app.utils.validators import validate_branch_code
 from app.extensions import db
-from sqlalchemy import func
-from datetime import date, timedelta
+from sqlalchemy import func, or_
+from datetime import timedelta
 import re
+import tempfile
+from sqlalchemy.exc import IntegrityError
 
 
 SERVICE_ROLE_LABELS = {
@@ -215,14 +220,13 @@ def _admin_demand_analytics(today):
 @login_required
 @require_role(UserRole.ADMIN)
 def dashboard():
-    today = date.today()
+    today = local_today()
     demand_analytics = _admin_demand_analytics(today)
     yest  = today - timedelta(days=1)
 
     total_branches = Branch.query.filter_by(is_active=True).count()
     tokens_today   = QueueToken.query.filter_by(queue_date=today).count()
     tokens_yest    = QueueToken.query.filter_by(queue_date=yest).count()
-    today_delta    = round(((tokens_today - tokens_yest) / max(tokens_yest, 1)) * 100)
     active_users   = User.query.filter_by(is_active=True).count()
 
     avg_r_v     = db.session.query(func.avg(SatisfactionRating.rating)).join(QueueToken).filter(
@@ -237,7 +241,7 @@ def dashboard():
                                                (QueueToken.queue_date == today))
                         .outerjoin(SatisfactionRating,
                                    SatisfactionRating.token_id == QueueToken.id)
-                        .filter(Branch.is_active == True)
+                        .filter(Branch.is_active.is_(True))
                         .group_by(Branch.id)
                         .order_by(func.count(QueueToken.id).desc())
                         .limit(8).all())
@@ -256,6 +260,7 @@ def dashboard():
     audit_logs      = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(10).all()
     appointment_requests = (
         AppointmentRequest.query
+        .filter(AppointmentRequest.status.in_(AppointmentStatus.OPEN))
         .order_by(AppointmentRequest.created_at.desc())
         .limit(20)
         .all()
@@ -268,17 +273,27 @@ def dashboard():
                      .order_by(func.count(QueueToken.id).desc())
                      .limit(10).all())
 
-    recent_customers = [{"full_name": c.full_name, "mobile": c.mobile,
-                          "created_at": c.created_at, "visit_count": vc,
-                          "last_service": None, "last_branch": None}
-                        for c, vc in customers_raw]
+    def last_visit(customer):
+        return (QueueToken.query.filter_by(customer_id=customer.id)
+                .order_by(QueueToken.id.desc()).first())
+
+    recent_customers = []
+    for c, vc in customers_raw:
+        last = last_visit(c)
+        recent_customers.append({
+            "full_name": c.full_name, "mobile": c.mobile,
+            "created_at": c.created_at, "visit_count": vc,
+            "last_service": last.service_type.name if last else None,
+            "last_branch": last.branch.name if last else None,
+        })
 
     return render_template("admin/dashboard.html",
         stats={
             "total_branches": total_branches, "tokens_today": tokens_today,
-            "today_delta": today_delta,
-            "national_rating": round(float(avg_r_v or 0), 1),
-            "rating_count": rating_count, "active_users": active_users, "online_now": 0,
+            "today_delta": metrics.pct_change(tokens_today, tokens_yest),
+            "national_rating": round(float(avg_r_v), 1) if avg_r_v is not None else None,
+            "rating_count": rating_count, "active_users": active_users,
+            "online_now": metrics.online_now(),
         },
         top_branches=top_branches, recent_users=recent_users,
         audit_logs=audit_logs, recent_customers=recent_customers,
@@ -342,7 +357,7 @@ def services():
 @login_required
 @require_role(UserRole.ADMIN)
 def service_edit(service_id):
-    service = ServiceType.query.get_or_404(service_id)
+    service = db.get_or_404(ServiceType, service_id)
     try:
         name, prefix, avg_service_min, allowed_roles = _validated_service_updates(
             service, request.form
@@ -376,11 +391,22 @@ def service_edit(service_id):
 @login_required
 @require_role(UserRole.ADMIN)
 def service_status(service_id):
-    service = ServiceType.query.get_or_404(service_id)
+    service = db.get_or_404(ServiceType, service_id)
     action = request.form.get("action")
     if action not in {"activate", "deactivate"}:
         flash("Invalid service action.", "danger")
         return redirect(url_for("admin_view.services"))
+
+    if action == "deactivate":
+        pending = QueueToken.query.filter(
+            QueueToken.service_type_id == service.id,
+            QueueToken.queue_date == local_today(),
+            QueueToken.status.in_(OPEN_STATUSES),
+        ).count()
+        if pending:
+            flash(f"{pending} patient(s) are still queued for {service.name}. "
+                  "Serve, transfer or mark them before deactivating the service.", "danger")
+            return redirect(url_for("admin_view.services"))
 
     service.is_active = action == "activate"
     db.session.add(AuditLog(
@@ -401,7 +427,7 @@ def service_status(service_id):
 @login_required
 @require_role(UserRole.ADMIN)
 def service_delete(service_id):
-    service = ServiceType.query.get_or_404(service_id)
+    service = db.get_or_404(ServiceType, service_id)
     if (
         service.tokens.count()
         or service.assigned_users
@@ -426,29 +452,6 @@ def service_delete(service_id):
     return redirect(url_for("admin_view.services"))
 
 
-def _selected_active_services(form):
-    try:
-        service_ids = {int(value) for value in form.getlist("service_ids")}
-    except (TypeError, ValueError):
-        raise ValueError("Select valid services.")
-
-    if not service_ids:
-        return []
-
-    services = ServiceType.query.filter(
-        ServiceType.id.in_(service_ids),
-        ServiceType.is_active.is_(True),
-    ).all()
-    if len(services) != len(service_ids):
-        raise ValueError("Select only active services.")
-    return services
-
-
-def _validate_role_services(role, services):
-    if any(not service_is_compatible_with_role(role, service) for service in services):
-        raise ValueError("Select services configured for this staff role.")
-
-
 def _user_form_service_ids(user):
     if not user or user.role == UserRole.ADMIN:
         return set()
@@ -469,7 +472,7 @@ def _user_form_service_ids(user):
 @login_required
 @require_role(UserRole.ADMIN)
 def branch_qr(branch_id):
-    branch = Branch.query.get_or_404(branch_id)
+    branch = db.get_or_404(Branch, branch_id)
     try:
         from app.utils.qr_generator import generate_branch_qr
         generate_branch_qr(branch)
@@ -485,6 +488,7 @@ def branch_qr(branch_id):
 @admin_view_bp.route("/branches/new", methods=["GET", "POST"])
 @login_required
 @require_role(UserRole.ADMIN)
+@audit_action("create_branch")
 def branch_new():
     if request.method == "POST":
         code = request.form.get("code", "").strip().upper()
@@ -494,6 +498,10 @@ def branch_new():
         phone = request.form.get("phone", "").strip() or None
         if not code or not name:
             flash("Branch code and name are required.", "danger")
+            return render_template("admin/branch_form.html", branch=None)
+        code_error = validate_branch_code(code)
+        if code_error:
+            flash(code_error + ".", "danger")
             return render_template("admin/branch_form.html", branch=None)
         if Branch.query.filter_by(code=code).first():
             flash("Branch code already exists.", "danger")
@@ -505,7 +513,8 @@ def branch_new():
             from app.utils.qr_generator import generate_branch_qr
             generate_branch_qr(branch)
         except Exception:
-            pass
+            from flask import current_app
+            current_app.logger.exception("QR generation failed for branch %s", branch.id)
         flash("Branch created successfully.", "success")
         return redirect(url_for("admin_view.branches"))
     return render_template("admin/branch_form.html", branch=None)
@@ -514,10 +523,11 @@ def branch_new():
 @admin_view_bp.route("/branches/<int:branch_id>/edit", methods=["GET", "POST"])
 @login_required
 @require_role(UserRole.ADMIN)
+@audit_action("update_branch")
 def branch_edit(branch_id):
-    branch = Branch.query.get_or_404(branch_id)
+    branch = db.get_or_404(Branch, branch_id)
     if request.method == "POST":
-        branch.name = request.form.get("name", branch.name).strip()
+        branch.name = request.form.get("name", branch.name).strip() or branch.name
         branch.address = request.form.get("address", "").strip() or None
         branch.city = request.form.get("city", "").strip() or None
         branch.phone = request.form.get("phone", "").strip() or None
@@ -531,8 +541,9 @@ def branch_edit(branch_id):
 @admin_view_bp.route("/branches/<int:branch_id>/deactivate", methods=["POST"])
 @login_required
 @require_role(UserRole.ADMIN)
+@audit_action("deactivate_branch")
 def branch_deactivate(branch_id):
-    branch = Branch.query.get_or_404(branch_id)
+    branch = db.get_or_404(Branch, branch_id)
     branch.is_active = False
     db.session.commit()
     flash(f"Branch {branch.name} has been deactivated.", "success")
@@ -550,106 +561,117 @@ def users():
 @admin_view_bp.route("/users/new", methods=["GET", "POST"])
 @login_required
 @require_role(UserRole.ADMIN)
+@audit_action("create_user")
 def user_new():
     branches = Branch.query.order_by(Branch.name).all()
     roles = list(ASSIGNABLE_ROLES)
     services = ServiceType.query.filter_by(is_active=True).order_by(ServiceType.name).all()
+
+    def form():
+        return render_template(
+            "admin/user_form.html", user=None, branches=branches, roles=roles,
+            services=services, selected_service_ids=set(),
+        )
+
     if request.method == "POST":
         employee_id = request.form.get("employee_id", "").strip()
         full_name = request.form.get("full_name", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
-        role_value = request.form.get("role")
-        branch_id = request.form.get("branch_id") or None
-        if not employee_id or not full_name or not email or not password or not role_value:
-            flash("Employee ID, name, email, password and role are required.", "danger")
-            return render_template(
-                "admin/user_form.html", user=None, branches=branches, roles=roles,
-                services=services, selected_service_ids=set(),
-            )
-        if User.query.filter_by(email=email).first():
-            flash("Email already registered.", "danger")
-            return render_template(
-                "admin/user_form.html", user=None, branches=branches, roles=roles,
-                services=services, selected_service_ids=set(),
-            )
-        role = next((role for role in roles if role.name == role_value), None)
-        if role is None:
-            flash("Invalid role selected.", "danger")
-            return render_template(
-                "admin/user_form.html", user=None, branches=branches, roles=roles,
-                services=services, selected_service_ids=set(),
-            )
         try:
-            selected_services = _selected_active_services(request.form)
-            if role != UserRole.ADMIN and not selected_services:
-                raise ValueError("Assign at least one service to this user.")
-            _validate_role_services(role, selected_services)
-        except ValueError as error:
+            if not (employee_id and full_name and email and password
+                    and request.form.get("role")):
+                raise UserInputError("Employee ID, name, email, password and role are required.")
+            user_service.check_password(password)
+            user_service.check_unique(email, employee_id)
+            role = user_service.resolve_role(request.form.get("role"), roles)
+            branch_id = user_service.resolve_branch_id(request.form.get("branch_id"), role)
+            selected_services = user_service.resolve_services(
+                request.form.getlist("service_ids"), role)
+        except UserInputError as error:
             flash(str(error), "danger")
-            return render_template(
-                "admin/user_form.html", user=None, branches=branches, roles=roles,
-                services=services, selected_service_ids=set(),
-            )
+            return form()
         user = User(
             employee_id=employee_id,
             full_name=full_name,
             email=email,
             role=role,
-            branch_id=int(branch_id) if branch_id else None,
+            branch_id=branch_id,
             assigned_services=selected_services,
+            must_change_password=bool(request.form.get("must_change_password")),
         )
         user.set_password(password)
         db.session.add(user)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash("Email or employee ID already registered.", "danger")
+            return form()
+        AuditService.log(current_user.id, "user_created_detail",
+                         {"user_id": user.id, "after": user_service.snapshot(user)})
         flash("User created successfully.", "success")
         return redirect(url_for("admin_view.users"))
-    return render_template(
-        "admin/user_form.html", user=None, branches=branches, roles=roles,
-        services=services, selected_service_ids=set(),
-    )
+    return form()
 
 
 @admin_view_bp.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
 @login_required
 @require_role(UserRole.ADMIN)
+@audit_action("update_user")
 def user_edit(user_id):
-    user = User.query.get_or_404(user_id)
+    user = db.get_or_404(User, user_id)
     branches = Branch.query.order_by(Branch.name).all()
     roles = list(ASSIGNABLE_ROLES)
     services = ServiceType.query.filter_by(is_active=True).order_by(ServiceType.name).all()
     if request.method == "POST":
-        user.employee_id = request.form.get("employee_id", user.employee_id).strip()
-        user.full_name = request.form.get("full_name", user.full_name).strip()
-        user.email = request.form.get("email", user.email).strip().lower()
-        user.branch_id = int(request.form.get("branch_id")) if request.form.get("branch_id") else None
-        user.is_active = bool(request.form.get("is_active"))
-        role_value = request.form.get("role")
-        if role_value:
-            role = next((role for role in roles if role.name == role_value), None)
-            if role is None:
-                flash("Invalid role selected.", "danger")
-                return render_template(
-                    "admin/user_form.html", user=user, branches=branches, roles=roles,
-                    services=services, selected_service_ids=_user_form_service_ids(user),
-                )
-            user.role = role
-        try:
-            selected_services = _selected_active_services(request.form)
-            if user.role not in (UserRole.ADMIN, UserRole.BRANCH_MANAGER) and not selected_services:
-                raise ValueError("Assign at least one service to this user.")
-            _validate_role_services(user.role, selected_services)
-        except ValueError as error:
-            flash(str(error), "danger")
+        def _form_error(message):
+            db.session.rollback()
+            flash(message, "danger")
             return render_template(
                 "admin/user_form.html", user=user, branches=branches, roles=roles,
                 services=services, selected_service_ids=_user_form_service_ids(user),
             )
-        user.assigned_services = selected_services
+
+        before = user_service.snapshot(user)
+        employee_id = request.form.get("employee_id", user.employee_id).strip()
+        email = request.form.get("email", user.email).strip().lower()
+        is_active = bool(request.form.get("is_active"))
         password = request.form.get("password", "")
+        try:
+            if not employee_id or not email:
+                raise UserInputError("Employee ID and email are required.")
+            user_service.check_unique(email, employee_id, exclude_id=user.id)
+            if user.id == current_user.id and not is_active:
+                raise UserInputError("You cannot deactivate your own account.")
+            role = (user_service.resolve_role(request.form.get("role"), roles)
+                    if request.form.get("role") else user.role)
+            if user.id == current_user.id and role != user.role:
+                raise UserInputError("You cannot change your own role.")
+            branch_id = user_service.resolve_branch_id(request.form.get("branch_id"), role)
+            selected_services = user_service.resolve_services(
+                request.form.getlist("service_ids"), role)
+            if password:
+                user_service.check_password(password)
+        except UserInputError as error:
+            return _form_error(str(error))
+
+        user.employee_id = employee_id
+        user.full_name = request.form.get("full_name", user.full_name).strip() or user.full_name
+        user.email = email
+        user.branch_id = branch_id
+        user.is_active = is_active
+        user.role = role
+        user.assigned_services = selected_services
         if password:
             user.set_password(password)
+            user.must_change_password = bool(request.form.get("must_change_password"))
         db.session.commit()
+        changes = AuditService.diff(before, user_service.snapshot(user))
+        if password:
+            changes["password"] = "reset"
+        AuditService.log(current_user.id, "user_updated_detail",
+                         {"user_id": user.id, "changes": changes})
         flash("User updated successfully.", "success")
         return redirect(url_for("admin_view.users"))
     return render_template(
@@ -661,8 +683,12 @@ def user_edit(user_id):
 @admin_view_bp.route("/users/<int:user_id>/deactivate", methods=["POST"])
 @login_required
 @require_role(UserRole.ADMIN)
+@audit_action("deactivate_user")
 def user_deactivate(user_id):
-    user = User.query.get_or_404(user_id)
+    user = db.get_or_404(User, user_id)
+    if user.id == current_user.id:
+        flash("You cannot deactivate your own account.", "danger")
+        return redirect(url_for("admin_view.users"))
     user.is_active = False
     db.session.commit()
     flash(f"User {user.full_name} has been deactivated.", "success")
@@ -673,8 +699,24 @@ def user_deactivate(user_id):
 @login_required
 @require_role(UserRole.ADMIN)
 def customers():
-    customers = Customer.query.order_by(Customer.created_at.desc()).all()
-    return render_template("admin/customers.html", customers=customers)
+    from app.views.manager_view import latest_visit_notes
+    page = request.args.get("page", 1, type=int)
+    search = request.args.get("q", "").strip()[:80]
+    query = Customer.query
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(Customer.full_name.ilike(like), Customer.mobile.like(like)))
+    pagination = (query.order_by(Customer.created_at.desc())
+                  .paginate(page=page, per_page=50, error_out=False))
+    AuditService.log(current_user.id, "view_patients",
+                     {"page": page, "search": bool(search), "count": len(pagination.items)})
+    return render_template(
+        "admin/customers.html",
+        customers=pagination.items,
+        pagination=pagination,
+        search=search,
+        latest_notes=latest_visit_notes([c.id for c in pagination.items]),
+    )
 
 
 @admin_view_bp.route("/customers/<int:customer_id>/summary", methods=["POST"])
@@ -682,7 +724,7 @@ def customers():
 @require_role(UserRole.ADMIN)
 @audit_action("update_customer_summary")
 def update_customer_summary(customer_id):
-    customer = Customer.query.get_or_404(customer_id)
+    customer = db.get_or_404(Customer, customer_id)
     review_comments = request.form.get("review_comments")
     if review_comments is not None:
         review_comments = review_comments.strip()
@@ -706,47 +748,82 @@ def update_customer_summary(customer_id):
     return redirect(url_for("admin_view.customers"))
 
 
-@admin_view_bp.route("/customers/export")
-@login_required
-@require_role(UserRole.ADMIN)
-@audit_action("export_customers")
-def export_customers():
-    customers = Customer.query.order_by(Customer.created_at.desc()).all()
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Customers"
-    worksheet.append(["Customer ID", "Full Name", "Mobile", "Registered"])
-    for cell in worksheet[1]:
-        cell.font = Font(bold=True)
-
-    for customer in customers:
-        name = customer.full_name
-        mobile = customer.mobile
-        worksheet.append([
-            customer.id,
-            name,
-            mobile,
-            customer.created_at.isoformat() if customer.created_at else "",
-        ])
-        for column in (2, 3):
-            worksheet.cell(row=worksheet.max_row, column=column).data_type = "s"
-
-    worksheet.freeze_panes = "A2"
-    worksheet.auto_filter.ref = worksheet.dimensions
-    worksheet.column_dimensions["A"].width = 14
-    worksheet.column_dimensions["B"].width = 32
-    worksheet.column_dimensions["C"].width = 20
-    worksheet.column_dimensions["D"].width = 28
-
-    output = BytesIO()
+def _xlsx_response(workbook, filename):
+    # Spool to a temporary file so a large export isn't held in memory twice.
+    output = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)
     workbook.save(output)
     output.seek(0)
     return send_file(
         output,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name="hospital_customers.xlsx",
+        download_name=filename,
     )
+
+
+@admin_view_bp.route("/customers/export")
+@login_required
+@require_role(UserRole.ADMIN)
+def export_customers():
+    AuditService.log(current_user.id, "export_customers", {"url": request.path})
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet("Customers")
+    worksheet.column_dimensions["A"].width = 14
+    worksheet.column_dimensions["B"].width = 32
+    worksheet.column_dimensions["C"].width = 20
+    worksheet.column_dimensions["D"].width = 28
+    worksheet.freeze_panes = "A2"
+
+    def cell(value, bold=False, as_text=False):
+        c = WriteOnlyCell(worksheet, value=value)
+        if bold:
+            c.font = Font(bold=True)
+        if as_text:
+            c.data_type = "s"
+        return c
+
+    worksheet.append([cell(h, bold=True)
+                      for h in ("Customer ID", "Full Name", "Mobile", "Registered")])
+    # Stream plain rows in batches instead of loading every patient at once.
+    rows = (db.session.query(Customer.id, Customer.full_name, Customer.mobile,
+                             Customer.created_at)
+            .order_by(Customer.created_at.desc())
+            .yield_per(1000))
+    for customer_id, full_name, mobile, created_at in rows:
+        local = to_local(created_at)
+        worksheet.append([
+            customer_id,
+            cell(full_name, as_text=True),
+            cell(mobile, as_text=True),
+            local.strftime("%Y-%m-%d %H:%M") if local else "",
+        ])
+    return _xlsx_response(workbook, "hospital_customers.xlsx")
+
+
+@admin_view_bp.route("/analytics/export")
+@login_required
+@require_role(UserRole.ADMIN)
+def export_analytics():
+    AuditService.log(current_user.id, "export_analytics", {"url": request.path})
+    data = _admin_demand_analytics(local_today())
+    workbook = Workbook()
+    daily = workbook.active
+    daily.title = "Daily tokens (30 days)"
+    daily.append(["Date", "Tokens"])
+    for row in data["daily_stats"]:
+        daily.append([row["date"], row["tokens"]])
+    by_branch = workbook.create_sheet("By location")
+    by_branch.append(["Location", "City", "Tokens (30 days)"])
+    for row in data["branch_stats"]:
+        by_branch.append([row["label"], row["city"] or "", row["tokens"]])
+    by_service = workbook.create_sheet("By service")
+    by_service.append(["Service", "Tokens (30 days)"])
+    for row in data["service_stats"]:
+        by_service.append([row["label"], row["tokens"]])
+    for sheet in workbook.worksheets:
+        for c in sheet[1]:
+            c.font = Font(bold=True)
+    return _xlsx_response(workbook, f"hospital_analytics_{local_today().isoformat()}.xlsx")
 
 
 @admin_view_bp.route("/audit-logs")
@@ -754,7 +831,8 @@ def export_customers():
 @require_role(UserRole.ADMIN)
 def audit_logs_view():
     page = request.args.get("page", 1, type=int)
-    logs = AuditLog.query.order_by(AuditLog.created_at.desc()).paginate(page=page, per_page=50)
+    logs = (AuditLog.query.order_by(AuditLog.created_at.desc())
+            .paginate(page=page, per_page=50, error_out=False))
     return render_template("admin/audit_logs.html", logs=logs)
 
 
@@ -762,7 +840,7 @@ def audit_logs_view():
 @login_required
 @require_role(UserRole.ADMIN)
 def analytics():
-    today = date.today()
+    today = local_today()
     demand_analytics = _admin_demand_analytics(today)
     return render_template(
         "admin/analytics.html",

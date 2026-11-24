@@ -34,6 +34,12 @@
                 Save summary
               </button>
             </form>
+            {% set note = latest_notes.get(customer.id) %}
+            {% if note %}
+            <div class="text-muted" style="font-size:11px;margin-top:6px;">
+              Latest visit note ({{ note.service_type.name }}, {{ note.queue_date }}): {{ note.condition_summary }}
+            </div>
+            {% endif %}
           </td>
         </tr>
         {% else %}

@@ -35,8 +35,11 @@
           <td>{{ appointment.mobile }}</td>
           <td>{{ appointment.service_type.name if appointment.service_type else appointment.requested_role.replace('_', ' ')|title }}</td>
           <td>{{ appointment.branch.name }}</td>
-          <td>{{ appointment.created_at.strftime('%d %b %Y %H:%M') }}</td>
-          <td><span class="pb-badge yellow">Pending</span></td>
+          <td>{{ appointment.created_at|localtime('%d %b %Y %H:%M') }}</td>
+          <td>
+            <span class="pb-badge {{ 'green' if appointment.status == 'scheduled' else 'yellow' }}">{{ appointment.status|title }}</span>
+            {% include "partials/appointment_actions.html" %}
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="6" style="text-align:center;color:#888;">No appointment requests for your assigned services.</td></tr>
@@ -53,7 +56,7 @@
     <div class="pb-stat-icon red"><i class="ti ti-users"></i></div>
     <div class="pb-stat-value" id="stat-served">{{ stats.served_today }}</div>
     <div class="pb-stat-label">Served today</div>
-    <div class="pb-stat-delta up">↑ {{ stats.served_delta }} vs yesterday</div>
+    <div class="pb-stat-delta {{ 'up' if stats.served_delta >= 0 else 'warn' }}">{{ '↑' if stats.served_delta >= 0 else '↓' }} {{ stats.served_delta|abs }} vs yesterday</div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon yellow"><i class="ti ti-clock-hour-4"></i></div>
@@ -65,13 +68,13 @@
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon green"><i class="ti ti-timer"></i></div>
-    <div class="pb-stat-value">{{ stats.avg_service_min }}m</div>
+    <div class="pb-stat-value">{{ stats.avg_service_min ~ 'm' if stats.avg_service_min is not none else '—' }}</div>
     <div class="pb-stat-label">Avg. service time</div>
     <div class="pb-stat-delta up">Target: 10m</div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon dark"><i class="ti ti-star"></i></div>
-    <div class="pb-stat-value">{{ stats.avg_rating }}★</div>
+    <div class="pb-stat-value">{{ stats.avg_rating ~ '★' if stats.avg_rating is not none else '—' }}</div>
     <div class="pb-stat-label">Satisfaction today</div>
     <div class="pb-stat-delta up">{{ stats.rating_count }} ratings</div>
   </div>
@@ -134,9 +137,9 @@
           {% for t in recent_tokens %}
           <tr>
             <td><strong>{{ t.token_number }}</strong></td>
-            <td>{{ t.customer.full_name }}</td>
+            <td>{{ t.display_name }}</td>
             <td><span class="pb-badge dark">{{ t.service_type.name }}</span></td>
-            <td>{{ t.service_duration_minutes or '—' }}m</td>
+            <td>{{ t.service_duration_minutes ~ 'm' if t.service_duration_minutes is not none else '—' }}</td>
             <td>{% if t.rating %}<span style="color:var(--pb-yellow);">★</span> {{ t.rating.rating }}{% else %}—{% endif %}</td>
           </tr>
           {% endfor %}
@@ -148,10 +151,10 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <script>
   // Init officer console
-  OfficerConsole.init({{ counter.id | tojson }}, {{ (branch.id if branch else none) | tojson }});
+  OfficerConsole.init({{ counter.id | tojson }}, {{ (branch.id if branch else none) | tojson }}, {{ current_token | tojson }});
 
   // Hourly chart
   const ctx = document.getElementById('hourly-chart').getContext('2d');

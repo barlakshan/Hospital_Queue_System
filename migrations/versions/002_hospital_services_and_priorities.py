@@ -27,20 +27,29 @@ HOSPITAL_PRIORITY_REASON = sa.Enum(
     name="priorityreason"
 )
 
+# (table, column, enum name, old values, new values, nullable)
 ENUM_COLUMNS = (
     ("users", "role", "userrole", ("admin", "branch_manager", "lobby_officer", "loan_officer"),
-     ("ADMIN", "BRANCH_MANAGER", "LOBBY_OFFICER", "LOAN_OFFICER")),
+     ("ADMIN", "BRANCH_MANAGER", "LOBBY_OFFICER", "LOAN_OFFICER"), False),
     ("queue_tokens", "status", "tokenstatus",
      ("waiting", "called", "serving", "completed", "no_show", "skipped"),
-     ("WAITING", "CALLED", "SERVING", "COMPLETED", "NO_SHOW", "SKIPPED")),
+     ("WAITING", "CALLED", "SERVING", "COMPLETED", "NO_SHOW", "SKIPPED"), True),
     ("sms_logs", "sms_type", "smstype", ("confirmation", "call_notification"),
-     ("CONFIRMATION", "CALL_NOTIFICATION")),
+     ("CONFIRMATION", "CALL_NOTIFICATION"), True),
     ("sms_logs", "status", "smsstatus", ("pending", "sent", "failed"),
-     ("PENDING", "SENT", "FAILED")),
+     ("PENDING", "SENT", "FAILED"), True),
 )
 
 
-def _normalize_enum_column(table, column, enum_name, old_values, new_values):
+def _normalize_enum_column(table, column, enum_name, old_values, new_values, nullable=True):
+    """Convert stored enum values from lowercase to uppercase.
+
+    MySQL compares ENUM members using the column collation, which is
+    case-insensitive by default, so a transitional ENUM holding both
+    'waiting' and 'WAITING' is rejected (error 1291, duplicated value).
+    Go through VARCHAR instead: ENUM(old) -> VARCHAR -> UPPER() -> ENUM(new).
+    nullable is passed explicitly because MySQL's MODIFY otherwise resets it.
+    """
     connection = op.get_bind()
     if connection.dialect.name == "sqlite":
         connection.execute(sa.text(
@@ -48,12 +57,13 @@ def _normalize_enum_column(table, column, enum_name, old_values, new_values):
         ))
         return
 
-    transitional = tuple(dict.fromkeys((*old_values, *new_values)))
     op.alter_column(
         table,
         column,
         existing_type=sa.Enum(*old_values, name=enum_name),
-        type_=sa.Enum(*transitional, name=enum_name),
+        type_=sa.String(32),
+        existing_nullable=nullable,
+        nullable=nullable,
     )
     connection.execute(sa.text(
         f"UPDATE {table} SET {column} = UPPER({column}) WHERE {column} IS NOT NULL"
@@ -61,8 +71,10 @@ def _normalize_enum_column(table, column, enum_name, old_values, new_values):
     op.alter_column(
         table,
         column,
-        existing_type=sa.Enum(*transitional, name=enum_name),
+        existing_type=sa.String(32),
         type_=sa.Enum(*new_values, name=enum_name),
+        existing_nullable=nullable,
+        nullable=nullable,
     )
 
 
@@ -125,8 +137,8 @@ def upgrade():
         )
     )
 
-    for table, column, enum_name, old_values, new_values in ENUM_COLUMNS:
-        _normalize_enum_column(table, column, enum_name, old_values, new_values)
+    for table, column, enum_name, old_values, new_values, nullable in ENUM_COLUMNS:
+        _normalize_enum_column(table, column, enum_name, old_values, new_values, nullable)
 
     if connection.dialect.name == "sqlite":
         connection.execute(sa.text(
@@ -146,26 +158,11 @@ def upgrade():
                 type_=HOSPITAL_PRIORITY_REASON,
             )
     else:
-        transitional_priority = tuple(dict.fromkeys(
-            (*("none", "elderly", "pregnant", "disabled"),
-             *HOSPITAL_PRIORITY_REASON.enums)
-        ))
-        op.alter_column(
-            "queue_tokens",
-            "priority_reason",
-            existing_type=sa.Enum("none", "elderly", "pregnant", "disabled",
-                                  name="priorityreason"),
-            type_=sa.Enum(*transitional_priority, name="priorityreason"),
-        )
-        connection.execute(sa.text(
-            "UPDATE queue_tokens SET priority_reason = UPPER(priority_reason) "
-            "WHERE priority_reason IS NOT NULL"
-        ))
-        op.alter_column(
-            "queue_tokens",
-            "priority_reason",
-            existing_type=sa.Enum(*transitional_priority, name="priorityreason"),
-            type_=HOSPITAL_PRIORITY_REASON,
+        # Same VARCHAR route as _normalize_enum_column (see its docstring).
+        _normalize_enum_column(
+            "queue_tokens", "priority_reason", "priorityreason",
+            ("none", "elderly", "pregnant", "disabled"),
+            HOSPITAL_PRIORITY_REASON.enums,
         )
 
 

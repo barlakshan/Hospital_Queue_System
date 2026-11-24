@@ -3,13 +3,14 @@ name: CI/CD
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pbqms-production
+  group: pbqms-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -24,59 +25,131 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-dev.txt
 
       - name: Run tests
         run: python -m pytest -q
 
+      - name: Audit dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt --strict
+
+  # The migrations must also run on a fresh MySQL database (new installs,
+  # disaster recovery). SQLite is far more permissive about ALTERs and ENUMs.
+  mysql-migrations:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+          MYSQL_DATABASE: pbqms
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Upgrade an empty MySQL database to head
+        env:
+          APP_ENV: development
+          DATABASE_URL: mysql+pymysql://root:ci-root@127.0.0.1:3306/pbqms
+          FLASK_APP: wsgi.py
+        run: |
+          flask db upgrade
+          flask seed-db
+          flask db downgrade 009_specialty_service_roles
+          flask db upgrade
+
+  # Deploys from a GitHub-hosted runner over SSH. A self-hosted runner on a
+  # public repository could be made to run code from fork pull requests.
+  #
+  # Secrets (Settings -> Environments -> production):
+  #   EC2_HOST         public IP or hostname of the instance
+  #   EC2_SSH_KEY      private key of the dedicated CI deploy key pair
+  #   EC2_KNOWN_HOSTS  the instance's SSH host key line(s) (ssh-keyscan output)
   deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux, x64]
+    needs: [test, mysql-migrations]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: pbqms-deploy-production
+      cancel-in-progress: false
+    env:
+      APP_DIR: /home/ubuntu/pbqms
+      EC2_USER: ubuntu
+      EC2_HOST: ${{ secrets.EC2_HOST }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2
-        shell: bash
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
         run: |
           set -Eeuo pipefail
+          for name in EC2_HOST EC2_SSH_KEY EC2_KNOWN_HOSTS; do
+            if [[ -z "${!name}" ]]; then
+              echo "Secret $name is not set in the production environment." >&2
+              exit 1
+            fi
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host ec2
+            HostName $EC2_HOST
+            User $EC2_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          EOF
 
-          app_dir=/home/ubuntu/pbqms
-          if [[ ! -d "$app_dir" ]]; then
-            echo "Application directory $app_dir is missing; provision the EC2 host first." >&2
-            exit 1
-          fi
-          if [[ ! -f "$app_dir/.env" ]]; then
-            echo "Production .env is missing from $app_dir; configure it before deploying." >&2
-            exit 1
-          fi
-          if [[ ! -x "$app_dir/venv/bin/python" ]]; then
-            echo "Application virtualenv is missing; provision the EC2 host first." >&2
-            exit 1
-          fi
-          if ! command -v rsync >/dev/null 2>&1; then
-            echo "rsync is required on the EC2 runner." >&2
-            exit 1
-          fi
+      - name: Check the server is provisioned
+        run: |
+          ssh ec2 "set -e
+            test -d '$APP_DIR'              || { echo 'Missing $APP_DIR; run deploy/ec2-setup.sh first.' >&2; exit 1; }
+            test -f '$APP_DIR/.env'         || { echo 'Missing $APP_DIR/.env; create it before deploying.' >&2; exit 1; }
+            test -x '$APP_DIR/venv/bin/python' || { echo 'Missing virtualenv; run deploy/ec2-setup.sh first.' >&2; exit 1; }
+            command -v rsync >/dev/null     || { echo 'Install rsync on the server: sudo apt install -y rsync' >&2; exit 1; }"
 
-          rsync -a --delete \
+      - name: Upload code
+        run: |
+          set -Eeuo pipefail
+          echo "$GITHUB_SHA" > .deployed-commit
+          # Excluded paths are also protected from --delete on the server.
+          rsync -az --delete \
             --exclude='/.git/' \
+            --exclude='/.github/' \
             --exclude='/.env' \
-            --exclude='/mestal.pem' \
+            --exclude='/*.pem' \
             --exclude='/venv/' \
+            --exclude='/.venv/' \
             --exclude='/static/qrcodes/' \
             --exclude='/*.sqlite3' \
+            --exclude='/*.sqlite3.*' \
             --exclude='/.pytest_cache/' \
             --exclude='__pycache__/' \
-            "$GITHUB_WORKSPACE/" "$app_dir/"
+            ./ "ec2:$APP_DIR/"
 
-          cd "$app_dir"
-          venv/bin/pip install -r requirements.txt
-          FLASK_APP=wsgi.py FLASK_ENV=production venv/bin/flask db upgrade
-          sudo -n /usr/bin/systemctl restart pbqms
-          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 2 --max-time 5 \
-            http://127.0.0.1:8000/ >/dev/null
+      - name: Install, migrate, restart and health-check
+        run: ssh ec2 "bash $APP_DIR/deploy/remote-deploy.sh"
+
+      - name: Remove SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

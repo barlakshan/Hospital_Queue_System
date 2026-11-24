@@ -9,10 +9,7 @@ fileConfig(config.config_file_name)
 logger = logging.getLogger('alembic.env')
 
 def get_engine():
-    try:
-        return current_app.extensions['migrate'].db.get_engine()
-    except (TypeError, AttributeError):
-        return current_app.extensions['migrate'].db.engine
+    return current_app.extensions['migrate'].db.engine
 
 def get_engine_url():
     try:
@@ -48,6 +45,12 @@ def run_migrations_online():
 
     connectable = get_engine()
     with connectable.connect() as connection:
+        if connection.dialect.name == "sqlite":
+            # The app enforces foreign keys on SQLite; batch migrations rebuild
+            # tables (copy, drop, rename), which must run with them off.
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
+        conf_args.setdefault("render_as_batch", connection.dialect.name == "sqlite")
         context.configure(connection=connection, target_metadata=get_metadata(), **conf_args)
         with context.begin_transaction():
             context.run_migrations()

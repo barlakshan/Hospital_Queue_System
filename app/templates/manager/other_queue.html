@@ -23,10 +23,10 @@
         {% for t in other_tokens %}
         <tr>
           <td><strong>{{ t.token_number }}</strong></td>
-          <td>{{ t.customer.full_name }}</td>
+          <td>{{ t.display_name }}</td>
           <td>{{ t.service_type.name }}</td>
           <td>{{ t.priority_reason.value.title() if t.is_priority else 'Regular' }}</td>
-          <td style="color:#888;font-size:12px;">{{ t.issued_at.strftime('%H:%M') }}</td>
+          <td style="color:#888;font-size:12px;">{{ t.issued_at|localtime('%H:%M') }}</td>
         </tr>
         {% else %}
         <tr><td colspan="5" class="text-center py-4" style="color:#aaa;">No patients are waiting.</td></tr>

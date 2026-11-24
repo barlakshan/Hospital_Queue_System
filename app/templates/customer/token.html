@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Your Patient Token — Melsta Hospitals</title>
-  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet" integrity="sha384-ir0fR0HzKEQ1x1XwqY5+0wIbrIgY45nvWPjIQy7+rjcwW7L0cHDytvEHKS3tIxBZ" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/pbqms.css') }}" rel="stylesheet">
   <style>
     body { background:#f4f4f5; display:flex; min-height:100vh; align-items:flex-start; justify-content:center; padding:20px 16px; }
@@ -69,6 +69,10 @@
       <div style="margin-top:10px;background:rgba(255,203,71,.2);border-radius:5px;padding:4px 8px;display:inline-block;">
         <span style="font-size:10px;color:#fff;font-weight:500;">★ Priority — {{ priority_reason }}</span>
       </div>
+      {% elif priority_requested %}
+      <div style="margin-top:10px;background:rgba(255,255,255,.15);border-radius:5px;padding:4px 8px;display:inline-block;">
+        <span style="font-size:10px;color:#fff;font-weight:500;">Priority requested ({{ priority_requested }}) — staff will confirm</span>
+      </div>
       {% endif %}
     </div>
 
@@ -126,7 +130,8 @@
 </div>
 
 <script>
-  const TOKEN_ID = {{ token_id }};
+  const TOKEN_REF = {{ token_ref | tojson }};
+  const INITIAL_POSITION = Math.max(1, {{ position | tojson }});
   let selectedRating = 0;
   let pollTimer = null;
 
@@ -150,7 +155,8 @@
   // Poll queue status
   async function pollStatus() {
     try {
-      const r = await fetch(`/api/queue/token/${TOKEN_ID}/status`);
+      const r = await fetch(`/api/queue/token/${encodeURIComponent(TOKEN_REF)}/status`);
+      if (!r.ok) return;
       const data = await r.json();
       updateUI(data);
     } catch(e) { console.error('Poll failed', e); }
@@ -167,7 +173,8 @@
           ? '<strong style="color:var(--pb-green);">You\'re next!</strong>'
           : `You are number <strong>${data.position}</strong> in queue`;
 
-      const pct = Math.max(5, 100 - (data.position / 20 * 100));
+      // Progress relative to where this patient started in the queue.
+      const pct = Math.max(5, Math.min(100, (1 - data.position / INITIAL_POSITION) * 100));
       document.getElementById('wait-fill').style.width = pct + '%';
     }
     if (typeof data.estimated_wait === 'number') {
@@ -185,11 +192,20 @@
       document.getElementById('status-badge').textContent = 'Called!';
       document.getElementById('status-badge').className = 'pb-badge red';
       if (data.counter) document.getElementById('call-counter').textContent = data.counter;
-      if (data.officer) document.getElementById('call-officer').innerHTML =
-        `<i class="ti ti-user"></i> Staff: ${data.officer}`;
-      clearInterval(pollTimer);
-      // Show rating after 3 min
-      setTimeout(() => document.getElementById('rating-section').style.display = 'block', 180000);
+      if (data.officer) {
+        const officerEl = document.getElementById('call-officer');
+        officerEl.textContent = ' Staff: ' + data.officer;
+        const icon = document.createElement('i');
+        icon.className = 'ti ti-user';
+        officerEl.prepend(icon);
+      }
+      // Keep polling (more slowly) so the rating form appears once the
+      // visit is completed; ratings are only accepted for completed visits.
+      if (!window._slowPoll) {
+        clearInterval(pollTimer);
+        pollTimer = setInterval(pollStatus, 60000);
+        window._slowPoll = true;
+      }
     }
 
     if (status === 'completed') {
@@ -208,11 +224,16 @@
     if (!selectedRating) return;
     const comment = document.getElementById('rating-comment').value;
     try {
-      await fetch(`/api/queue/token/${TOKEN_ID}/rate`, {
+      const r = await fetch(`/api/queue/token/${encodeURIComponent(TOKEN_REF)}/rate`, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ rating: selectedRating, comment }),
       });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        alert(data.error || 'Could not submit rating — please try again.');
+        return;
+      }
       document.getElementById('submit-rating').style.display = 'none';
       document.getElementById('rating-done').style.display = 'block';
       document.getElementById('rating-comment').style.display = 'none';

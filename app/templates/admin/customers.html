@@ -18,6 +18,11 @@
 <div class="pb-card">
   <div class="pb-card-header">
     <div class="pb-card-title">Registered Patients</div>
+    <form method="get" action="{{ url_for('admin_view.customers') }}" style="display:flex;gap:6px;">
+      <input type="search" name="q" value="{{ search }}" class="pb-form-control" placeholder="Search name or mobile" style="max-width:240px;padding:6px 10px;">
+      <button type="submit" class="btn-pb-outline" style="padding:6px 10px;">Search</button>
+    </form>
+    <span class="pb-badge">{{ pagination.total }} total</span>
   </div>
   <table class="pb-table">
     <thead>
@@ -26,7 +31,6 @@
         <th>Mobile</th>
         <th>Patient Summary</th>
         <th>Registered</th>
-        <th>Status</th>
       </tr>
     </thead>
     <tbody>
@@ -40,12 +44,31 @@
           {% else %}
             <span style="color:#888;">No summary recorded</span>
           {% endif %}
+          {% set note = latest_notes.get(customer.id) %}
+          {% if note %}
+          <div class="text-muted" style="font-size:11px;margin-top:4px;">
+            Latest visit note ({{ note.service_type.name }}, {{ note.queue_date }}): {{ note.condition_summary }}
+          </div>
+          {% endif %}
         </td>
-        <td>{{ customer.created_at.strftime('%Y-%m-%d') if customer.created_at else '-' }}</td>
-        <td><span class="badge" style="background:#10b981;">Active</span></td>
+        <td>{{ customer.created_at|localtime('%Y-%m-%d') if customer.created_at else '-' }}</td>
       </tr>
+      {% else %}
+      <tr><td colspan="4" class="text-center py-4" style="color:#aaa;">No patients found.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if pagination.pages > 1 %}
+<div style="display:flex;justify-content:center;gap:8px;margin-top:16px;">
+  {% if pagination.has_prev %}
+  <a class="btn-pb-outline" href="{{ url_for('admin_view.customers', page=pagination.prev_num, q=search or None) }}">← Previous</a>
+  {% endif %}
+  <span style="align-self:center;font-size:12px;color:#888;">Page {{ pagination.page }} of {{ pagination.pages }}</span>
+  {% if pagination.has_next %}
+  <a class="btn-pb-outline" href="{{ url_for('admin_view.customers', page=pagination.next_num, q=search or None) }}">Next →</a>
+  {% endif %}
+</div>
+{% endif %}
 {% endblock %}

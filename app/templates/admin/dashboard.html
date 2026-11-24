@@ -10,7 +10,7 @@
   <div style="display:flex;gap:8px;">
     <a href="/admin/branches" class="btn-pb-primary"><i class="ti ti-plus"></i> New location</a>
     <a href="/admin/users" class="btn-pb-outline"><i class="ti ti-user-plus"></i> New user</a>
-    <a href="/api/admin/analytics/export" class="btn-pb-outline"><i class="ti ti-download"></i> Export</a>
+    <a href="{{ url_for('admin_view.export_analytics') }}" class="btn-pb-outline"><i class="ti ti-download"></i> Export analytics</a>
   </div>
 </div>
 
@@ -26,11 +26,11 @@
     <div class="pb-stat-icon green"><i class="ti ti-ticket"></i></div>
     <div class="pb-stat-value">{{ stats.tokens_today | number_format }}</div>
     <div class="pb-stat-label">Tokens today (all)</div>
-    <div class="pb-stat-delta up">↑ {{ stats.today_delta }}% vs yesterday</div>
+    <div class="pb-stat-delta {{ 'up' if (stats.today_delta or 0) >= 0 else 'down' }}">{% if stats.today_delta is none %}— vs yesterday{% else %}{{ '↑' if stats.today_delta >= 0 else '↓' }} {{ stats.today_delta|abs }}% vs yesterday{% endif %}</div>
   </div>
   <div class="pb-stat-card">
     <div class="pb-stat-icon yellow"><i class="ti ti-star"></i></div>
-    <div class="pb-stat-value">{{ stats.national_rating }}★</div>
+    <div class="pb-stat-value">{{ stats.national_rating ~ '★' if stats.national_rating is not none else '—' }}</div>
     <div class="pb-stat-label">National avg rating</div>
     <div class="pb-stat-delta up">{{ stats.rating_count }} ratings</div>
   </div>
@@ -104,7 +104,7 @@
               }.get(u.role.value, u.role.value.replace('_',' ').title()) }}
             </span></td>
             <td style="color:#888;font-size:12px;">{{ u.branch.name if u.branch else 'All' }}</td>
-            <td style="color:#888;font-size:12px;">{{ u.last_login.strftime('%d %b %H:%M') if u.last_login else 'Never' }}</td>
+            <td style="color:#888;font-size:12px;">{{ u.last_login|localtime('%d %b %H:%M') if u.last_login else 'Never' }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -128,11 +128,14 @@
           <td>{{ appointment.mobile }}</td>
           <td>{{ appointment.service_type.name if appointment.service_type else appointment.requested_role.replace('_', ' ')|title }}</td>
           <td>{{ appointment.branch.name }}</td>
-          <td>{{ appointment.created_at.strftime('%d %b %Y %H:%M') }}</td>
-          <td><span class="pb-badge yellow">Pending</span></td>
+          <td>{{ appointment.created_at|localtime('%d %b %Y %H:%M') }}</td>
+          <td>
+            <span class="pb-badge {{ 'green' if appointment.status == 'scheduled' else 'yellow' }}">{{ appointment.status|title }}</span>
+            {% include "partials/appointment_actions.html" %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" style="text-align:center;color:#888;">No appointment requests yet.</td></tr>
+        <tr><td colspan="6" style="text-align:center;color:#888;">No open appointment requests.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -176,7 +179,7 @@
       <tbody>
         {% for log in audit_logs %}
         <tr>
-          <td style="color:#888;font-size:12px;">{{ log.created_at.strftime('%H:%M:%S') }}</td>
+          <td style="color:#888;font-size:12px;">{{ log.created_at|localtime('%H:%M:%S') }}</td>
           <td>{{ log.user.full_name if log.user else 'System' }}</td>
           <td><code style="font-size:11px;background:#f4f4f5;padding:2px 5px;border-radius:4px;">{{ log.action }}</code></td>
           <td style="color:#888;font-size:12px;">{{ log.user.branch.code if log.user and log.user.branch else '—' }}</td>
@@ -193,7 +196,7 @@
   <div class="pb-card-header">
     <div class="pb-card-title"><i class="ti ti-address-book" style="font-size:15px;margin-right:6px;color:var(--pb-red)"></i>Patient register <span style="font-size:12px;font-weight:400;color:#aaa;margin-left:4px;">limited to queue contact details</span></div>
     <div style="display:flex;gap:8px;">
-      <a href="/api/admin/customers?format=csv" class="btn-pb-outline" style="font-size:11px;padding:5px 10px;"><i class="ti ti-download"></i> Export CSV</a>
+      <a href="{{ url_for('admin_view.export_customers') }}" class="btn-pb-outline" style="font-size:11px;padding:5px 10px;"><i class="ti ti-download"></i> Export Excel</a>
       <a href="/admin/customers" style="font-size:12px;color:var(--pb-red);">View all →</a>
     </div>
   </div>
@@ -208,7 +211,7 @@
           <td>{{ c.visit_count }}</td>
           <td style="color:#888;font-size:12px;">{{ c.last_service or '—' }}</td>
           <td style="color:#888;font-size:12px;">{{ c.last_branch or '—' }}</td>
-          <td style="color:#aaa;font-size:11px;">{{ c.created_at.strftime('%d %b %Y') }}</td>
+          <td style="color:#aaa;font-size:11px;">{{ c.created_at|localtime('%d %b %Y') }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -218,7 +221,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <script>
   const demand = {{ demand_analytics | tojson }};
   const demandChartOptions = {

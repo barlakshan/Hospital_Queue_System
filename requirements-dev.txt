@@ -1,0 +1,7 @@
+# Development and CI tools. Production installs requirements.txt only.
+-r requirements.txt
+pytest==9.2.0
+iniconfig==2.3.1
+pluggy==1.7.0
+Pygments==2.21.0
+pip-audit==2.10.1

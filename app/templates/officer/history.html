@@ -21,9 +21,9 @@
         {% for t in completed %}
         <tr>
           <td><strong>{{ t.token_number }}</strong></td>
-          <td>{{ t.customer.full_name }}</td>
+          <td>{{ t.display_name }}</td>
           <td>{{ t.service_type.name }}</td>
-          <td>{{ t.service_duration_minutes or '—' }}m</td>
+          <td>{{ t.service_duration_minutes ~ 'm' if t.service_duration_minutes is not none else '—' }}</td>
           <td>{% if t.rating %}<span style="color:var(--pb-yellow);">★</span> {{ t.rating.rating }}{% else %}—{% endif %}</td>
         </tr>
         {% else %}

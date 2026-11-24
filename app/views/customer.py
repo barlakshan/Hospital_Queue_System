@@ -1,6 +1,7 @@
 from flask import render_template, redirect, url_for
 from app.views import customer_bp
-from app.models import Branch, ServiceType, QueueToken, TokenStatus
+from app.models import Branch, ServiceType, QueueToken
+from app.services.queue_service import QueueService
 
 
 @customer_bp.route("/register/")
@@ -40,23 +41,26 @@ def appointment_request(branch_code):
     )
 
 
-@customer_bp.route("/register/token/<int:token_id>")
-def token_page(token_id):
-    token = QueueToken.query.get_or_404(token_id)
-    from app.services.queue_service import QueueService
+@customer_bp.route("/register/token/<string:token_ref>")
+def token_page(token_ref):
+    # Public page: addressed by an unguessable reference, never the
+    # sequential database id.
+    token = QueueToken.query.filter_by(public_ref=token_ref).first_or_404()
     position  = QueueService.get_position(token)
-    wait_pct  = max(5, 100 - int(position / 20 * 100)) if position else 95
     mobile    = token.customer.mobile
-    masked    = mobile[:6] + "•" * max(0, len(mobile) - 6)
+    # Reveal only the last two digits of the mobile number.
+    masked    = "•" * max(0, len(mobile) - 2) + mobile[-2:]
     return render_template("customer/token.html",
-        token_id=token.id,
+        token_ref=token.public_ref,
         token_number=token.token_number,
         service_name=token.service_type.name,
         branch_name=token.branch.name,
         mobile_masked=masked,
         position=position,
-        estimated_wait=token.estimated_wait_min,
+        estimated_wait=QueueService.estimate_wait(token, position),
         is_priority=token.is_priority,
         priority_reason=token.priority_reason.value.title() if token.is_priority else "",
-        wait_pct=wait_pct,
+        priority_requested=(token.priority_requested.value.title()
+                            if token.priority_requested and not token.is_priority else ""),
+        wait_pct=5,
     )

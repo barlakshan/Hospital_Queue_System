@@ -2,6 +2,8 @@ from io import BytesIO
 from datetime import date, timedelta
 
 import pytest
+
+from app.utils.timeutil import local_today
 from openpyxl import load_workbook
 
 from app import create_app
@@ -188,21 +190,21 @@ def test_admin_analytics_compares_locations_services_and_period_growth(app_clien
                 service_type_id=service.id,
                 customer_id=customer.id,
                 token_number="CA001",
-                queue_date=date.today(),
+                queue_date=local_today(),
             ),
             QueueToken(
                 branch_id=branch.id,
                 service_type_id=service.id,
                 customer_id=customer.id,
                 token_number="CA002",
-                queue_date=date.today(),
+                queue_date=local_today(),
             ),
             QueueToken(
                 branch_id=branch.id,
                 service_type_id=service.id,
                 customer_id=customer.id,
                 token_number="CA003",
-                queue_date=date.today() - timedelta(days=30),
+                queue_date=local_today() - timedelta(days=30),
             ),
         ])
         db.session.commit()

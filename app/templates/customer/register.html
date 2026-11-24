@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Join the Patient Queue — Melsta Hospitals</title>
-  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/dist/tabler-icons.min.css" rel="stylesheet" integrity="sha384-ir0fR0HzKEQ1x1XwqY5+0wIbrIgY45nvWPjIQy7+rjcwW7L0cHDytvEHKS3tIxBZ" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/pbqms.css') }}" rel="stylesheet">
   <style>
     body { background: #f4f4f5; display: flex; min-height: 100vh; align-items: flex-start; justify-content: center; padding: 20px 16px; }
@@ -75,7 +75,7 @@
           <div class="pb-chip" onclick="setPriorityReason('DISABLED',this)"><i class="ti ti-wheelchair"></i> Disabled</div>
           <div class="pb-chip" onclick="setPriorityReason('CHILD',this)"><i class="ti ti-mood-kid"></i> Child</div>
         </div>
-        <small class="text-muted d-block mt-2">If this is a medical emergency, please alert hospital staff immediately. Do not wait for a queue token.</small>
+        <small class="text-muted d-block mt-2"><strong>If this is a medical emergency, go to the emergency desk or alert any staff member now. Do not wait for a queue token.</strong> Priority requests are confirmed by staff before they change your place in the queue.</small>
       </div>
 
       <button type="submit" class="btn-pb-primary w-100" id="submit-btn" style="width:100%;padding:12px;font-size:14px;">
@@ -120,7 +120,7 @@
       });
       const result = await resp.json();
       if (resp.ok) {
-        window.location.href = `/register/token/${result.token_id}`;
+        window.location.href = `/register/token/${encodeURIComponent(result.token_ref)}`;
       } else {
         alert(result.error || 'Registration failed. Please try again.');
         btn.disabled = false;

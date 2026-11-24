@@ -1,25 +1,24 @@
-from flask import render_template, redirect, url_for
+from flask import render_template
 from flask_login import login_required, current_user
 from app.views import officer_bp
 from app.models import (
-    DOCTOR_ROLES, AppointmentRequest, QueueToken, TokenStatus, Counter,
-    UserRole, SatisfactionRating, ServiceType,
+    DOCTOR_ROLES, STAFF_ROLES, AppointmentRequest, AppointmentStatus, Counter,
+    QueueToken, SatisfactionRating, ServiceType, TokenStatus,
 )
+from app.services import metrics
+from app.services.notification_service import serving_payload
+from app.services.queue_service import QueueService
 from app.utils.decorators import require_role
+from app.utils.timeutil import local_now, local_today, to_local
 from app.extensions import db
 from sqlalchemy import func
-from datetime import date, datetime
 
 
 @officer_bp.route("/dashboard")
 @login_required
-@require_role(
-    UserRole.OPD, UserRole.PHARMACY, *DOCTOR_ROLES,
-    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
-    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
-)
+@require_role(*STAFF_ROLES)
 def dashboard():
-    today      = date.today()
+    today      = local_today()
     branch_id  = current_user.branch_id
     counter    = Counter.query.filter_by(user_id=current_user.id, is_active=True).first()
 
@@ -32,11 +31,7 @@ def dashboard():
     ).order_by(ServiceType.name).all()
     service_ids = [service.id for service in services]
 
-    # My stats
-    served_today = QueueToken.query.filter_by(
-        branch_id=branch_id, served_by=current_user.id,
-        queue_date=today, status=TokenStatus.COMPLETED,
-    ).count()
+    summary = metrics.officer_summary(current_user, today)
 
     waiting = QueueToken.query.filter_by(
         branch_id=branch_id, status=TokenStatus.WAITING, queue_date=today,
@@ -52,37 +47,43 @@ def dashboard():
         QueueToken.served_by == current_user.id,
         QueueToken.queue_date == today,
     ).scalar()
-    avg_rating   = round(float(avg_rating_v or 0), 1)
     rating_count = (db.session.query(func.count(SatisfactionRating.id))
                     .join(QueueToken)
                     .filter(QueueToken.served_by == current_user.id, QueueToken.queue_date == today)
                     .scalar()) or 0
 
-    # Hourly chart — last 8 hours
-    current_hour  = datetime.now().hour
-    start_hour    = max(8, current_hour - 7)
+    # Hourly chart — last 8 hours, in the hospital's local time.
+    current_hour  = local_now().hour
+    start_hour    = max(8, current_hour - 7) if current_hour >= 8 else 0
 
     completed_today = (QueueToken.query
-                        .filter(
-                            QueueToken.branch_id == branch_id,
-                            QueueToken.served_by == current_user.id,
-                            QueueToken.queue_date == today,
-                            QueueToken.status == TokenStatus.COMPLETED,
-                            QueueToken.completed_at.isnot(None),
-                        ).all())
+                       .filter(
+                           QueueToken.branch_id == branch_id,
+                           QueueToken.served_by == current_user.id,
+                           QueueToken.queue_date == today,
+                           QueueToken.status == TokenStatus.COMPLETED,
+                           QueueToken.completed_at.isnot(None),
+                       ).all())
     counts_by_hour = {}
     for t in completed_today:
-        counts_by_hour[t.completed_at.hour] = counts_by_hour.get(t.completed_at.hour, 0) + 1
+        hour = to_local(t.completed_at).hour
+        counts_by_hour[hour] = counts_by_hour.get(hour, 0) + 1
 
     hourly_labels = []
     hourly_data   = []
     for h in range(start_hour, current_hour + 1):
-        label = f"{h}am" if h < 12 else (f"{h-12}pm" if h > 12 else "12pm")
+        if h == 0:
+            label = "12am"
+        elif h < 12:
+            label = f"{h}am"
+        elif h == 12:
+            label = "12pm"
+        else:
+            label = f"{h-12}pm"
         hourly_labels.append(label)
         hourly_data.append(counts_by_hour.get(h, 0))
     peak_hour = hourly_data.index(max(hourly_data)) if hourly_data and max(hourly_data) > 0 else 0
 
-    # Recent completed
     recent = (QueueToken.query
               .filter_by(served_by=current_user.id, queue_date=today, status=TokenStatus.COMPLETED)
               .order_by(QueueToken.completed_at.desc())
@@ -94,16 +95,18 @@ def dashboard():
             AppointmentRequest.query.filter(
                 AppointmentRequest.branch_id == branch_id,
                 AppointmentRequest.service_type_id.in_(service_ids),
+                AppointmentRequest.status.in_(AppointmentStatus.OPEN),
             )
             .order_by(AppointmentRequest.created_at.desc())
             .limit(20)
             .all()
         )
 
+    open_token = QueueService.open_token_for(current_user)
     stats = {
-        "served_today": served_today, "served_delta": 3,
+        **summary,
         "waiting": waiting, "priority_waiting": priority_waiting,
-        "avg_service_min": 8, "avg_rating": avg_rating,
+        "avg_rating": round(float(avg_rating_v), 1) if avg_rating_v is not None else None,
         "rating_count": rating_count,
     }
     return render_template("officer/dashboard.html",
@@ -112,23 +115,20 @@ def dashboard():
         appointment_requests=appointment_requests,
         appointment_services=services,
         hourly_labels=hourly_labels, hourly_data=hourly_data, peak_hour=peak_hour,
+        current_token=serving_payload(open_token) if open_token else None,
     )
 
 
 @officer_bp.route("/queue")
 @login_required
-@require_role(
-    UserRole.OPD, UserRole.PHARMACY, *DOCTOR_ROLES,
-    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
-    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
-)
+@require_role(*STAFF_ROLES)
 def queue():
     service_ids = [s.id for s in ServiceType.query.filter(
         ServiceType.code.in_(current_user.allowed_service_codes)).all()]
     tokens = (QueueToken.query
               .filter_by(branch_id=current_user.branch_id,
                          status=TokenStatus.WAITING,
-                         queue_date=date.today())
+                         queue_date=local_today())
               .filter(QueueToken.service_type_id.in_(service_ids))
               .order_by(QueueToken.is_priority.desc(), QueueToken.id.asc())
               .all())
@@ -142,17 +142,13 @@ def queue():
 
 @officer_bp.route("/history")
 @login_required
-@require_role(
-    UserRole.OPD, UserRole.PHARMACY, *DOCTOR_ROLES,
-    UserRole.LOBBY_OFFICER, UserRole.LOAN_OFFICER,
-    UserRole.SPECIALIST_DOCTOR, UserRole.BRANCH_MANAGER,
-)
+@require_role(*STAFF_ROLES)
 def history():
     completed = (QueueToken.query
                  .filter_by(branch_id=current_user.branch_id,
                             served_by=current_user.id,
                             status=TokenStatus.COMPLETED,
-                            queue_date=date.today())
+                            queue_date=local_today())
                  .order_by(QueueToken.completed_at.desc())
                  .limit(40).all())
 

@@ -107,12 +107,14 @@ def test_customer_registration_and_queue_lifecycle(client):
     ]
 
     with client.application.app_context():
-        token = QueueToken.query.get(payload["token_id"])
+        token = db.session.get(QueueToken, payload["token_id"])
         assert token is not None
         assert token.status == TokenStatus.WAITING
         assert token.estimated_wait_min >= 0
 
-    status_response = client.get(f"/api/queue/token/{payload['token_id']}/status")
+    # Public status/rating URLs use the unguessable reference, not the id.
+    assert client.get(f"/api/queue/token/{payload['token_id']}/status").status_code == 404
+    status_response = client.get(f"/api/queue/token/{payload['token_ref']}/status")
     assert status_response.status_code == 200
     assert status_response.get_json()["status"] == "waiting"
 
@@ -127,13 +129,13 @@ def test_customer_registration_and_queue_lifecycle(client):
     assert complete_response.status_code == 200
 
     rating_response = client.post(
-        f"/api/queue/token/{payload['token_id']}/rate",
+        f"/api/queue/token/{payload['token_ref']}/rate",
         json={"rating": 5, "comment": "Great service"},
     )
     assert rating_response.status_code == 200
 
     with client.application.app_context():
-        token = QueueToken.query.get(payload["token_id"])
+        token = db.session.get(QueueToken, payload["token_id"])
         assert token.status == TokenStatus.COMPLETED
         assert SatisfactionRating.query.filter_by(token_id=token.id).count() == 1
 
@@ -771,19 +773,34 @@ def test_hospital_priority_categories_keep_priority_ahead_of_regular_queue(clien
     assert [first_regular.status_code, emergency.status_code,
             second_regular.status_code, urgent.status_code] == [201, 201, 201, 201]
 
-    assert emergency.get_json()["position"] == 0
-    assert second_regular.get_json()["position"] == 2
-    assert urgent.get_json()["position"] == 1
-    status = client.get(
-        f"/api/queue/token/{second_regular.get_json()['token_id']}/status"
-    ).get_json()
-    assert status["estimated_wait"] == 30
+    # A priority chosen on the public form is only a request: it does not
+    # move the patient until staff confirm it.
+    assert emergency.get_json()["is_priority"] is False
+    assert emergency.get_json()["priority_requested"] == "emergency"
+    assert emergency.get_json()["position"] == 1
     assert register_patient("Invalid Priority", "CRITICAL").status_code == 400
 
     assert client.post(
         "/api/auth/login",
         json={"email": "nurse@example.com", "password": "secret123"},
     ).status_code == 200
+    waiting = {t["id"]: t for t in client.get("/api/queue/waiting").get_json()}
+    assert waiting[emergency.get_json()["token_id"]]["priority_requested"] == "emergency"
+
+    for response, reason in ((emergency, "EMERGENCY"), (urgent, "URGENT")):
+        confirm = client.post(f"/api/queue/token/{response.get_json()['token_id']}/priority",
+                              json={"priority_reason": reason})
+        assert confirm.status_code == 200, confirm.get_json()
+
+    def status_of(response):
+        return client.get(
+            f"/api/queue/token/{response.get_json()['token_ref']}/status").get_json()
+
+    assert status_of(emergency)["position"] == 0
+    assert status_of(urgent)["position"] == 1
+    assert status_of(second_regular)["position"] == 3
+    assert status_of(second_regular)["estimated_wait"] == 30
+
     call_response = client.post("/api/queue/call-next", json={})
     assert call_response.status_code == 200
     assert call_response.get_json()["token_number"] == emergency.get_json()["token_number"]
@@ -823,7 +840,7 @@ def test_admin_can_create_update_deactivate_reactivate_and_delete_services(clien
         },
     ).status_code == 302
     with client.application.app_context():
-        service = ServiceType.query.get(service_id)
+        service = db.session.get(ServiceType, service_id)
         assert service.name == "Immunization"
         assert service.prefix == "IM"
         assert service.avg_service_min == 20
@@ -839,7 +856,7 @@ def test_admin_can_create_update_deactivate_reactivate_and_delete_services(clien
         },
     ).status_code == 302
     with client.application.app_context():
-        service = ServiceType.query.get(service_id)
+        service = db.session.get(ServiceType, service_id)
         assert service.name == "Immunization"
         assert service.prefix == "IM"
         assert service.avg_service_min == 20
@@ -849,18 +866,18 @@ def test_admin_can_create_update_deactivate_reactivate_and_delete_services(clien
         f"/admin/services/{service_id}/status", data={"action": "deactivate"}
     ).status_code == 302
     with client.application.app_context():
-        assert ServiceType.query.get(service_id).is_active is False
+        assert db.session.get(ServiceType, service_id).is_active is False
     assert b"Immunization" in client.get("/admin/services").data
 
     assert client.post(
         f"/admin/services/{service_id}/status", data={"action": "activate"}
     ).status_code == 302
     with client.application.app_context():
-        assert ServiceType.query.get(service_id).is_active is True
+        assert db.session.get(ServiceType, service_id).is_active is True
 
     assert client.post(f"/admin/services/{service_id}/delete").status_code == 302
     with client.application.app_context():
-        assert ServiceType.query.get(service_id) is None
+        assert db.session.get(ServiceType, service_id) is None
 
 
 def test_admin_cannot_delete_a_service_assigned_to_a_user(client):
@@ -884,7 +901,7 @@ def test_admin_cannot_delete_a_service_assigned_to_a_user(client):
     ).status_code == 200
     assert client.post(f"/admin/services/{service_id}/delete").status_code == 302
     with client.application.app_context():
-        assert ServiceType.query.get(service_id) is not None
+        assert db.session.get(ServiceType, service_id) is not None
 
 
 def test_added_services_are_assignable_to_users_and_display_privacy_is_preserved(client):
@@ -953,7 +970,7 @@ def test_added_services_are_assignable_to_users_and_display_privacy_is_preserved
     )
     assert assignment_response.status_code == 200
     with client.application.app_context():
-        receptionist = User.query.get(receptionist_id)
+        receptionist = db.session.get(User, receptionist_id)
         assert receptionist.allowed_service_codes == [vaccination_code]
 
     patient_response = client.post("/api/queue/register", json={
@@ -975,7 +992,7 @@ def test_added_services_are_assignable_to_users_and_display_privacy_is_preserved
 
     with client.application.app_context():
         from app.models import QueueToken, TokenStatus
-        token = QueueToken.query.get(token_id)
+        token = db.session.get(QueueToken, token_id)
         token.status = TokenStatus.CALLED
         db.session.commit()
 

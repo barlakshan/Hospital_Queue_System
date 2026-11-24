@@ -1,8 +1,9 @@
 from app.extensions import db
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timezone
+from app.utils.timeutil import utcnow
 import enum
+
 
 class UserRole(enum.Enum):
     ADMIN          = "admin"
@@ -11,29 +12,70 @@ class UserRole(enum.Enum):
     DENTIST        = "dentist"
     CARDIOLOGISTS  = "cardiologists"
     DERMATOLOGISTS = "dermatologists"
+    BRANCH_MANAGER = "branch_manager"   # shown as "Location Manager"
 
-    # Kept for existing databases and routes; new accounts use the roles above.
-    BRANCH_MANAGER = "branch_manager"
+    # Kept for existing databases; new accounts use the roles above.
     LOBBY_OFFICER  = "lobby_officer"
     LOAN_OFFICER   = "loan_officer"
     SPECIALIST_DOCTOR = "specialist_doctor"
 
 
-ASSIGNABLE_ROLES = (
-    UserRole.ADMIN,
-    UserRole.OPD,
-    UserRole.PHARMACY,
-    UserRole.DENTIST,
-    UserRole.CARDIOLOGISTS,
-    UserRole.DERMATOLOGISTS,
-)
+ROLE_LABELS = {
+    UserRole.ADMIN: "Admin",
+    UserRole.OPD: "OPD",
+    UserRole.PHARMACY: "Pharmacy",
+    UserRole.DENTIST: "Dentist",
+    UserRole.CARDIOLOGISTS: "Cardiologists",
+    UserRole.DERMATOLOGISTS: "Dermatologists",
+    UserRole.BRANCH_MANAGER: "Location Manager",
+    UserRole.LOBBY_OFFICER: "Lobby Officer (legacy)",
+    UserRole.LOAN_OFFICER: "Loan Officer (legacy)",
+    UserRole.SPECIALIST_DOCTOR: "Specialist Doctor (legacy)",
+}
+
 DOCTOR_ROLES = (
     UserRole.DENTIST,
     UserRole.CARDIOLOGISTS,
     UserRole.DERMATOLOGISTS,
 )
-SERVICE_ROLES = ASSIGNABLE_ROLES[1:]
+# Roles that serve patients from a service queue.
+SERVICE_ROLES = (
+    UserRole.OPD,
+    UserRole.PHARMACY,
+    *DOCTOR_ROLES,
+)
+# Roles an admin can give to a new or edited account.
+ASSIGNABLE_ROLES = (
+    UserRole.ADMIN,
+    *SERVICE_ROLES,
+    UserRole.BRANCH_MANAGER,
+)
+# Everyone who may use the staff console and queue actions.
+STAFF_ROLES = (
+    *SERVICE_ROLES,
+    UserRole.LOBBY_OFFICER,
+    UserRole.LOAN_OFFICER,
+    UserRole.SPECIALIST_DOCTOR,
+    UserRole.BRANCH_MANAGER,
+)
+# Roles that must belong to a hospital location.
+BRANCH_REQUIRED_ROLES = tuple(role for role in STAFF_ROLES)
+
 SPECIALTY_ROLE_VALUES = {role.value for role in DOCTOR_ROLES}
+
+# New role -> legacy role name still found in old service configuration.
+_LEGACY_SERVICE_ROLE = {
+    UserRole.OPD: UserRole.LOBBY_OFFICER.value,
+    UserRole.PHARMACY: UserRole.LOAN_OFFICER.value,
+    UserRole.DENTIST: UserRole.SPECIALIST_DOCTOR.value,
+    UserRole.CARDIOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
+    UserRole.DERMATOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
+}
+
+
+def legacy_service_role(role):
+    """The pre-hospital role name that grants the same service access."""
+    return _LEGACY_SERVICE_ROLE.get(role)
 
 
 def service_is_compatible_with_role(role, service):
@@ -48,6 +90,7 @@ def service_is_compatible_with_role(role, service):
         role.value in allowed_roles
         or UserRole.SPECIALIST_DOCTOR.value in allowed_roles
     )
+
 
 user_services = db.Table(
     "user_services",
@@ -71,8 +114,12 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     role          = db.Column(db.Enum(UserRole), nullable=False)
     is_active     = db.Column(db.Boolean, default=True)
+    # Set when an admin chooses the password; cleared when the user changes it.
+    must_change_password = db.Column(db.Boolean, nullable=False, default=False,
+                                     server_default="0")
     last_login    = db.Column(db.DateTime)
-    created_at    = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen     = db.Column(db.DateTime)
+    created_at    = db.Column(db.DateTime, default=utcnow)
     branch        = db.relationship("Branch", back_populates="users")
     assigned_services = db.relationship(
         "ServiceType",
@@ -90,6 +137,10 @@ class User(UserMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 
     @property
+    def role_label(self):
+        return ROLE_LABELS.get(self.role, self.role.value.replace("_", " ").title())
+
+    @property
     def allowed_service_codes(self):
         if self.role in (UserRole.ADMIN, UserRole.BRANCH_MANAGER):
             return [service.code for service in self._active_services()]
@@ -103,25 +154,16 @@ class User(UserMixin, db.Model):
                 )
             ]
         if self.role not in DOCTOR_ROLES:
+            legacy = legacy_service_role(self.role)
             return [
                 service.code for service in self._active_services()
                 if self.role.value in (service.allowed_roles or [])
-                or self._legacy_service_role in (service.allowed_roles or [])
+                or legacy in (service.allowed_roles or [])
             ]
         return [
             service.code for service in self._active_services()
             if service_is_compatible_with_role(self.role, service)
         ]
-
-    @property
-    def _legacy_service_role(self):
-        return {
-            UserRole.OPD: UserRole.LOBBY_OFFICER.value,
-            UserRole.PHARMACY: UserRole.LOAN_OFFICER.value,
-            UserRole.DENTIST: UserRole.SPECIALIST_DOCTOR.value,
-            UserRole.CARDIOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
-            UserRole.DERMATOLOGISTS: UserRole.SPECIALIST_DOCTOR.value,
-        }.get(self.role)
 
     @staticmethod
     def _active_services():

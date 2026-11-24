@@ -1,4 +1,4 @@
-"""Initial schema — People's Bank QEMS v1.0
+"""Initial schema (v1.0).
 
 Revision ID: 001_initial
 """

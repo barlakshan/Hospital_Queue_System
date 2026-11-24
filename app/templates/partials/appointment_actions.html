@@ -1,0 +1,9 @@
+{# Status buttons for one appointment request. Expects `appointment`. #}
+<form method="post" action="{{ url_for('queue_api.update_appointment_status', request_id=appointment.id) }}" style="display:inline-flex;gap:4px;margin-left:6px;">
+  {% if appointment.status == 'pending' %}
+  <button type="submit" name="status" value="scheduled" class="btn-pb-outline" style="padding:2px 8px;font-size:11px;">Schedule</button>
+  <button type="submit" name="status" value="rejected" class="btn-pb-outline" style="padding:2px 8px;font-size:11px;">Reject</button>
+  {% elif appointment.status == 'scheduled' %}
+  <button type="submit" name="status" value="done" class="btn-pb-outline" style="padding:2px 8px;font-size:11px;">Done</button>
+  {% endif %}
+</form>
