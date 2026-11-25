@@ -16,3 +16,6 @@ venv/
 *.sqlite3
 *.sqlite3.*
 static/qrcodes/
+
+# Screenshots from failed UAT tests
+uat-artifacts/
