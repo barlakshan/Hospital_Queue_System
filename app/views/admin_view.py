@@ -5,7 +5,7 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from app.views import admin_view_bp
 from app.models import (
-    ASSIGNABLE_ROLES, OPEN_STATUSES, SERVICE_ROLES, AppointmentRequest, AppointmentStatus,
+    ASSIGNABLE_ROLES, OPEN_STATUSES, ROLE_LABELS, SERVICE_ROLES, AppointmentRequest, AppointmentStatus,
     Branch, User, UserRole, QueueToken, Customer, AuditLog, SatisfactionRating, ServiceType,
 )
 from app.services import metrics, user_service
@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 SERVICE_ROLE_LABELS = {
-    role.value: role.value.replace("_", " ").title()
+    role.value: ROLE_LABELS[role]
     for role in (
         *SERVICE_ROLES,
         UserRole.LOBBY_OFFICER,
@@ -95,6 +95,13 @@ def _validated_service_name(name, exclude_id=None):
     return name
 
 
+def _clean_department(value):
+    department = " ".join(value.split())
+    if len(department) > 80:
+        raise ValueError("Department name must be 80 characters or fewer.")
+    return department or None
+
+
 def _validated_service_updates(service, form):
     name = _validated_service_name(form.get("name", ""), exclude_id=service.id)
 
@@ -115,9 +122,14 @@ def _validated_service_updates(service, form):
     if not 1 <= avg_service_min <= 240:
         raise ValueError("Average service time must be between 1 and 240 minutes.")
 
-    allowed_roles = form.getlist("allowed_roles")
-    if any(role not in SERVICE_ROLE_LABELS for role in allowed_roles):
-        raise ValueError("Select valid staff roles for this service.")
+    # Roles are managed with the add/remove controls; only replace them when
+    # the form explicitly submits a role list.
+    if "allowed_roles" in form:
+        allowed_roles = form.getlist("allowed_roles")
+        if any(role not in SERVICE_ROLE_LABELS for role in allowed_roles):
+            raise ValueError("Select valid staff roles for this service.")
+    else:
+        allowed_roles = list(service.allowed_roles or [])
 
     return name, prefix, avg_service_min, allowed_roles
 
@@ -320,11 +332,13 @@ def services():
     if request.method == "POST":
         try:
             new_name = _validated_service_name(request.form.get("new_name", ""))
+            department = _clean_department(request.form.get("new_department", ""))
 
             existing_services = ServiceType.query.all()
             new_service = ServiceType(
                 code=_service_code(new_name, {service.code for service in existing_services}),
                 name=new_name,
+                department=department,
                 prefix=_service_prefix(new_name, {service.prefix for service in existing_services}),
                 avg_service_min=10,
                 allowed_roles=[],
@@ -362,11 +376,15 @@ def service_edit(service_id):
         name, prefix, avg_service_min, allowed_roles = _validated_service_updates(
             service, request.form
         )
+        # Keep the current department when the form does not submit one.
+        department = (_clean_department(request.form["department"])
+                      if "department" in request.form else service.department)
     except ValueError as error:
         flash(str(error), "danger")
         return redirect(url_for("admin_view.services"))
 
     service.name = name
+    service.department = department
     service.prefix = prefix
     service.avg_service_min = avg_service_min
     service.allowed_roles = allowed_roles
@@ -376,6 +394,7 @@ def service_edit(service_id):
         payload={
             "service_code": service.code,
             "service_name": service.name,
+            "department": service.department,
             "service_prefix": service.prefix,
             "avg_service_min": service.avg_service_min,
             "allowed_roles": service.allowed_roles,
@@ -384,6 +403,51 @@ def service_edit(service_id):
     ))
     db.session.commit()
     flash("Service updated successfully.", "success")
+    return redirect(url_for("admin_view.services"))
+
+
+@admin_view_bp.post("/services/<int:service_id>/roles")
+@login_required
+@require_role(UserRole.ADMIN)
+def service_roles(service_id):
+    service = db.get_or_404(ServiceType, service_id)
+    action = request.form.get("action")
+    role = request.form.get("role", "")
+    if action not in {"add", "remove"} or role not in SERVICE_ROLE_LABELS:
+        flash("Select a valid staff role.", "danger")
+        return redirect(url_for("admin_view.services"))
+
+    current_roles = list(service.allowed_roles or [])
+    role_label = SERVICE_ROLE_LABELS[role]
+    if action == "add":
+        if role in current_roles:
+            flash(f"{role_label} can already call {service.name}.", "info")
+            return redirect(url_for("admin_view.services"))
+        current_roles.append(role)
+    else:
+        if role not in current_roles:
+            flash(f"{role_label} is not allowed to call {service.name}.", "info")
+            return redirect(url_for("admin_view.services"))
+        current_roles.remove(role)
+
+    # Assign a new list so the JSON column change is detected.
+    service.allowed_roles = current_roles
+    db.session.add(AuditLog(
+        user_id=current_user.id,
+        action=f"{action}_service_role",
+        payload={
+            "service_code": service.code,
+            "service_name": service.name,
+            "role": role,
+            "allowed_roles": current_roles,
+        },
+        ip_address=request.remote_addr,
+    ))
+    db.session.commit()
+    flash(
+        f"{role_label} {'added to' if action == 'add' else 'removed from'} {service.name}.",
+        "success",
+    )
     return redirect(url_for("admin_view.services"))
 
 

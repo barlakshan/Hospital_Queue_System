@@ -54,6 +54,7 @@ def token_page(token_ref):
         token_ref=token.public_ref,
         token_number=token.token_number,
         service_name=token.service_type.name,
+        department_name=token.service_type.department_name,
         branch_name=token.branch.name,
         mobile_masked=masked,
         position=position,

@@ -887,6 +887,56 @@ def test_admin_can_create_update_deactivate_reactivate_and_delete_services(clien
         assert db.session.get(ServiceType, service_id) is None
 
 
+def test_admin_can_add_and_remove_service_staff_roles(client):
+    with client.application.app_context():
+        admin = User(
+            employee_id="ADM220",
+            full_name="Hospital Admin",
+            email="roles-admin@example.com",
+            role=UserRole.ADMIN,
+        )
+        admin.set_password("secret123")
+        service = ServiceType(code="ROLE", name="Role Test", prefix="RT",
+                              avg_service_min=10, allowed_roles=["opd"])
+        db.session.add_all([admin, service])
+        db.session.commit()
+        service_id = service.id
+
+    assert client.post(
+        "/api/auth/login",
+        json={"email": "roles-admin@example.com", "password": "secret123"},
+    ).status_code == 200
+
+    url = f"/admin/services/{service_id}/roles"
+    assert client.post(url, data={"action": "add", "role": "pharmacy"}).status_code == 302
+    with client.application.app_context():
+        assert db.session.get(ServiceType, service_id).allowed_roles == ["opd", "pharmacy"]
+
+    # Adding an existing role or an unknown role changes nothing.
+    client.post(url, data={"action": "add", "role": "pharmacy"})
+    client.post(url, data={"action": "add", "role": "admin"})
+    with client.application.app_context():
+        assert db.session.get(ServiceType, service_id).allowed_roles == ["opd", "pharmacy"]
+
+    assert client.post(url, data={"action": "remove", "role": "opd"}).status_code == 302
+    with client.application.app_context():
+        assert db.session.get(ServiceType, service_id).allowed_roles == ["pharmacy"]
+
+    # Editing the service without a role list keeps the roles.
+    client.post(f"/admin/services/{service_id}/edit", data={
+        "name": "Role Test 2", "prefix": "RT", "avg_service_min": "15",
+    })
+    with client.application.app_context():
+        service = db.session.get(ServiceType, service_id)
+        assert service.name == "Role Test 2"
+        assert service.allowed_roles == ["pharmacy"]
+
+    page = client.get("/admin/services")
+    assert page.status_code == 200
+    assert b"Remove Pharmacy" in page.data
+    assert b'<option value="opd">OPD</option>' in page.data
+
+
 def test_admin_cannot_delete_a_service_assigned_to_a_user(client):
     with client.application.app_context():
         service = ServiceType(code="VAC", name="Vaccination", prefix="V")
@@ -1045,3 +1095,25 @@ def test_manager_cannot_access_admin_routes(client):
 
     admin_branches_response = client.get("/api/admin/branches")
     assert admin_branches_response.status_code == 403
+
+
+def test_token_page_shows_department_above_service(client):
+    from app.services.queue_service import QueueService
+
+    with client.application.app_context():
+        service = ServiceType.query.filter_by(code="G").one()
+        service.department = "Outpatient Care"
+        db.session.commit()
+        service_id = service.id
+        branch = Branch(name="Dept Branch", code="DPT01")
+        db.session.add(branch)
+        db.session.commit()
+        token = QueueService.register_customer(
+            branch.id, "Dept Patient", "0771234999", service_id).token
+        ref = token.public_ref
+
+    page = client.get(f"/register/token/{ref}").get_data(as_text=True)
+    assert 'id="call-department">Outpatient Care<' in page
+    assert 'id="call-service">General OPD<' in page
+    status = client.get(f"/api/queue/token/{ref}/status").get_json()
+    assert (status["department"], status["service"]) == ("Outpatient Care", "General OPD")

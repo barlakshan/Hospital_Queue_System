@@ -123,7 +123,9 @@ class SmsService:
             brand=cls.BRAND,
             name=token.display_name or "Patient",
             token=token.token_number,
-            department=token.service_type.name,
+            department=(
+                f"{token.service_type.department} - {token.service_type.name}"
+                if token.service_type.department else token.service_type.name),
             counter=f" ({counter})" if counter else "",
             branch=token.branch.name,
         )

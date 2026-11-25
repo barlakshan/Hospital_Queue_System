@@ -295,6 +295,7 @@ def token_status(token_ref):
         "estimated_wait": QueueService.estimate_wait(token, position),
         "now_serving":    now_serving.token_number if now_serving else None,
         "service":        token.service_type.name,
+        "department":     token.service_type.department_name,
         "branch":         token.branch.name,
         "counter":        token.counter.label if token.counter else None,
         "called_at":      iso_local(token.called_at),

@@ -2,6 +2,11 @@
 {% block title %}Departments & Services — Melsta Hospitals{% endblock %}
 
 {% block content %}
+<datalist id="department-list">
+  {% for department in services | map(attribute='department') | select | unique %}
+  <option value="{{ department }}"></option>
+  {% endfor %}
+</datalist>
 <div class="pb-page-header">
   <div>
     <div class="pb-page-title">Departments &amp; Services</div>
@@ -17,9 +22,13 @@
   <div class="pb-card-body">
     <form method="POST">
       <div class="row g-3 align-items-end">
-        <div class="col-md-9">
+        <div class="col-md-5">
           <label class="pb-form-label" for="new-name">Service name</label>
           <input class="pb-form-control" id="new-name" name="new_name" maxlength="80" placeholder="e.g. Dental" required autocomplete="off">
+        </div>
+        <div class="col-md-4">
+          <label class="pb-form-label" for="new-department">Department (optional)</label>
+          <input class="pb-form-control" id="new-department" name="new_department" maxlength="80" placeholder="e.g. Specialist Consultation" list="department-list" autocomplete="off">
         </div>
         <div class="col-md-3">
           <button type="submit" class="btn-pb-primary w-100"><i class="ti ti-plus"></i> Add service</button>
@@ -36,34 +45,61 @@
   </div>
   <div class="pb-card-body" style="padding:0;">
     <table class="pb-table">
-      <thead><tr><th>Code</th><th>Service</th><th>Token prefix</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Code</th><th>Service</th><th>Staff roles allowed to call this queue</th><th>Token prefix</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
         {% for service in services %}
         <tr>
           <td><strong>{{ service.code }}</strong></td>
           <td>
             <strong>{{ service.name }}</strong>
+            {% if service.department %}<div class="text-muted" style="font-size:12px;">Department: {{ service.department }}</div>{% endif %}
             <details style="margin-top:6px;">
               <summary style="cursor:pointer;color:var(--pb-teal);font-size:12px;">Edit service</summary>
               <form action="{{ url_for('admin_view.service_edit', service_id=service.id) }}" method="POST" style="min-width:320px;margin-top:8px;">
                 <label class="pb-form-label" for="service-name-{{ service.id }}">Service name</label>
                 <input class="pb-form-control mb-2" id="service-name-{{ service.id }}" name="name" value="{{ service.name }}" maxlength="80" required>
+                <label class="pb-form-label" for="service-department-{{ service.id }}">Department (optional)</label>
+                <input class="pb-form-control mb-2" id="service-department-{{ service.id }}" name="department" value="{{ service.department or '' }}" maxlength="80" list="department-list">
                 <label class="pb-form-label" for="service-prefix-{{ service.id }}">Token prefix</label>
                 <input class="pb-form-control mb-2" id="service-prefix-{{ service.id }}" name="prefix" value="{{ service.prefix }}" maxlength="2" pattern="[A-Za-z0-9]{1,2}" required>
                 <label class="pb-form-label" for="service-average-{{ service.id }}">Average service time (minutes)</label>
                 <input class="pb-form-control mb-2" id="service-average-{{ service.id }}" name="avg_service_min" type="number" min="1" max="240" value="{{ service.avg_service_min }}" required>
-                <div class="pb-form-label">Staff roles allowed to call this queue</div>
-                <div class="d-flex flex-wrap gap-2 mb-2">
-                  {% for role_value, role_label in role_labels.items() %}
-                  <label class="form-check-label">
-                    <input class="form-check-input me-1" type="checkbox" name="allowed_roles" value="{{ role_value }}" {% if role_value in (service.allowed_roles or []) %}checked{% endif %}>
-                    {{ role_label }}
-                  </label>
-                  {% endfor %}
-                </div>
                 <button type="submit" class="btn-pb-primary" style="padding:6px 10px;">Save changes</button>
               </form>
             </details>
+          </td>
+          <td style="min-width:240px;">
+            {% set current_roles = service.allowed_roles or [] %}
+            <div class="d-flex flex-wrap gap-1 mb-2">
+              {% for role_value in current_roles %}
+              <form action="{{ url_for('admin_view.service_roles', service_id=service.id) }}" method="POST" style="display:inline;">
+                <input type="hidden" name="action" value="remove">
+                <input type="hidden" name="role" value="{{ role_value }}">
+                <span class="pb-badge dark" style="display:inline-flex;align-items:center;gap:4px;">
+                  {{ role_labels.get(role_value, role_value) }}
+                  <button type="submit" title="Remove {{ role_labels.get(role_value, role_value) }}" aria-label="Remove {{ role_labels.get(role_value, role_value) }}"
+                          style="border:0;background:none;color:inherit;padding:0;line-height:1;cursor:pointer;">
+                    <i class="ti ti-x"></i>
+                  </button>
+                </span>
+              </form>
+              {% else %}
+              <span class="text-muted" style="font-size:12px;">No roles assigned</span>
+              {% endfor %}
+            </div>
+            {% set available_roles = role_labels.items() | rejectattr(0, 'in', current_roles) | list %}
+            {% if available_roles %}
+            <form action="{{ url_for('admin_view.service_roles', service_id=service.id) }}" method="POST" class="d-flex gap-1">
+              <input type="hidden" name="action" value="add">
+              <select class="pb-form-control" name="role" aria-label="Role to add to {{ service.name }}" required style="padding:4px 8px;font-size:12px;">
+                <option value="" disabled selected>Add role…</option>
+                {% for role_value, role_label in available_roles %}
+                <option value="{{ role_value }}">{{ role_label }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn-pb-outline" style="padding:4px 10px;" title="Add role"><i class="ti ti-plus"></i></button>
+            </form>
+            {% endif %}
           </td>
           <td>{{ service.prefix }}</td>
           <td>
@@ -86,7 +122,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center py-4 text-muted">No services have been added yet.</td></tr>
+        <tr><td colspan="6" class="text-center py-4 text-muted">No services have been added yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

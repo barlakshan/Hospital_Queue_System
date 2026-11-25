@@ -66,7 +66,7 @@ def _fake_token(wait, phone="0112345678"):
         token_number="G005",
         public_ref="abc123",
         estimated_wait_min=wait,
-        service_type=SimpleNamespace(name="General OPD"),
+        service_type=SimpleNamespace(name="General OPD", department=None),
         branch=SimpleNamespace(name="Colombo", phone=phone),
         counter=None,
         served_by_officer=None,
@@ -152,3 +152,13 @@ def test_production_refuses_unknown_sms_provider():
                      SECRET_KEY="x" * 40, SQLALCHEMY_DATABASE_URI="sqlite://")
     with pytest.raises(RuntimeError, match="SMS_PROVIDER"):
         _check_production_config(app)
+
+
+def test_call_notification_names_department_and_service():
+    from types import SimpleNamespace
+    token = _fake_token(wait=0)
+    token.service_type = SimpleNamespace(name="Dental", department="Specialist Consultation")
+    app = create_app("testing")
+    with app.app_context():
+        msg = SmsService.build_call_notification(token)
+    assert "Please proceed to Specialist Consultation - Dental." in msg
